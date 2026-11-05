@@ -273,7 +273,7 @@ function summaryCard(p: NightPlan, cloud: CloudAverage | null | undefined): stri
       <span class="fact-s tnum">${fmtHM(b.start, d)}–${fmtHM(b.end, d)} · ${b.start && b.end ? fmtDuration(b.end.getTime() - b.start.getTime()) : '—'} · ${N.nFrames(b.frames ?? '—')}</span></div>`;
   return `<section class="block"><h2>${N.windowTitle}</h2>
     <div class="facts">
-      <div class="fact"><span class="fact-k">${N.window}</span><b class="tnum">${fmtHM(w.start, d)}–${fmtHM(w.end, d)}</b><span class="fact-s tnum">${fmtDuration(w.durationMs)} · ${Math.round(w.durationMs / 1000)} s</span></div>
+      <div class="fact"><span class="fact-k">${N.window}</span><b class="tnum">${fmtHM(w.start, d)}–${fmtHM(w.end, d)}</b><span class="fact-s tnum">${fmtDuration(w.durationMs)} · ${S().common.secs(Math.round(w.durationMs / 1000))}</span></div>
       <div class="fact"><span class="fact-k">${N.shots}</span><b class="tnum">${w.shots}</b><span class="fact-s">${N.expInt(CAMERA.exposureS, CAMERA.intervalS)}</span></div>
       ${p.bands.map(band).join('')}
     </div>

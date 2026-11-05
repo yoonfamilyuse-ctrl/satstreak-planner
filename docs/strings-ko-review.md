@@ -10,6 +10,8 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 
 | Key | English | 한국어 |
 |---|---|---|
+| `common.secs` | ƒ(x) → `${x} s` | ƒ(x) → `${x}초` |
+| `common.perHour` | ƒ(x) → `${x}/h` | ƒ(x) → `${x}/시간` |
 | `common.cloudNone` | no forecast | 예보 없음 |
 | `common.cloud` | ƒ(t, l, m, h) → `${t}% total · low ${l} / mid ${m} / high ${h}` | ƒ(t, l, m, h) → `전체 ${t}% · 하층 ${l} / 중층 ${m} / 상층 ${h}` |
 | `common.attribution` | Weather data by Open-Meteo.com | 날씨 데이터: Open-Meteo.com |
@@ -125,10 +127,10 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `night.windowTitle` | Shooting window | 촬영 시간 |
 | `night.window` | Window | 촬영 시간 |
 | `night.shots` | Number of Shots | 촬영 매수 |
-| `night.expInt` | ƒ(e, i) → `${e} s exposure, ${i} s interval` | ƒ(e, i) → `노출 ${e} s, 간격 ${i} s` |
+| `night.expInt` | ƒ(e, i) → `${e} s exposure, ${i} s interval` | ƒ(e, i) → `노출 ${e}초, 간격 ${i}초` |
 | `night.nFrames` | ƒ(n) → `${n} frames` | ƒ(n) → `${n}프레임` |
 | `night.cloudLine` | Cloud forecast (window mean): | 구름 예보 (촬영 시간 평균): |
-| `night.windowNote` | ƒ(m, a, b, i) → `Window = ${m} min before the Sun reaches ${a}° to ${m} min after it reaches ${b}°. Shots = ⌈duration ÷ ${i} s⌉. Band frames are for an on-time start.` | ƒ(m, a, b, i) → `촬영 시간 = 태양이 ${a}°에 닿기 ${m} min 전부터 ${b}°에 닿은 뒤 ${m} min까지. 촬영 매수 = ⌈길이 ÷ ${i} s⌉. 구간 프레임은 정시에 시작했을 때 기준이에요.` |
+| `night.windowNote` | ƒ(m, a, b, i) → `Window = ${m} min before the Sun reaches ${a}° to ${m} min after it reaches ${b}°. Shots = ⌈duration ÷ ${i} s⌉. Band frames are for an on-time start.` | ƒ(m, a, b, i) → `촬영 시간 = 태양이 ${a}°에 닿기 ${m}분 전부터 ${b}°에 닿은 뒤 ${m}분까지. 촬영 매수 = ⌈길이 ÷ ${i}초⌉. 구간 프레임은 정시에 시작했을 때 기준이에요.` |
 | `night.sunTitle` | Sun | 태양 |
 | `night.sunset` | Sunset | 일몰 |
 | `night.sunsetDetail` | (upper limb, refraction) | (윗가장자리, 대기차 포함) |
@@ -147,11 +149,11 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `night.moonrise` | Moonrise | 월출 |
 | `night.moonset` | Moonset | 월몰 |
 | `night.upDuring` | Up during window | 촬영 중 떠 있는 시간 |
-| `night.upOf` | ƒ(a, b) → `${a} of ${b} min` | ƒ(a, b) → `${b} min 중 ${a} min` |
+| `night.upOf` | ƒ(a, b) → `${a} of ${b} min` | ƒ(a, b) → `${b}분 중 ${a}분` |
 | `night.maxAlt` | ƒ(d) → ` · max alt ${d}` | ƒ(d) → ` · 최고 고도 ${d}` |
 | `night.thMoonAlt` | Moon alt. | 달 고도 |
 | `night.thMoonAz` | Moon az. | 달 방위각 |
-| `night.moonNote` | Rise/set: next events after 12:00 KST of the date (within 24 h; “(+1d)” = next day). Moon altitude is apparent (topocentric, with refraction); negative = below horizon. Azimuth from north through east. Rows in a solar band are marked. | 월출·월몰: 그날 12:00 KST 뒤 첫 시각 (24시간 안, “(+1d)” = 다음 날). 달 고도는 겉보기 고도예요 (관측자 기준, 대기차 포함). 음수면 지평선 아래예요. 방위각은 북쪽에서 동쪽으로 잰 값이에요. 태양이 구간 안에 있는 줄은 표시돼 있어요. |
+| `night.moonNote` | Rise/set: next events after 12:00 KST of the date (within 24 h; “(+1d)” = next day). Moon altitude is apparent (topocentric, with refraction); negative = below horizon. Azimuth from north through east. Rows in a solar band are marked. | 월출·월몰: 그날 12:00 KST 뒤 첫 시각 (24시간 안, “(+1일)” = 다음 날). 달 고도는 겉보기 고도예요 (관측자 기준, 대기차 포함). 음수면 지평선 아래예요. 방위각은 북쪽에서 동쪽으로 잰 값이에요. 태양이 구간 안에 있는 줄은 표시돼 있어요. |
 
 ## Log tab
 
@@ -183,7 +185,7 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `log.issHead.start` | Exposure start (true) | 노출 시작 (실제) |
 | `log.issHead.atStart` | ISS at start (az, alt) | 시작 때 ISS (방위각, 고도) |
 | `log.issHead.atEnd` | ISS at end | 끝날 때 ISS |
-| `log.issNote` | ƒ(exp, half, epoch) → `A = EXIF marks the exposure start; B = EXIF marks the end (true start ${exp} s earlier). The ISS moves ≈ 1°/s here, so 1 s of timing error ≈ 1° along the track. Band: Sun at mid-exposure (frame start + ${half} s). ISS element epoch ${epoch} KST.` | ƒ(exp, half, epoch) → `A = EXIF 시각이 노출 시작, B = EXIF 시각이 노출 끝 (실제 시작은 ${exp} s 앞). 여기서 ISS는 약 1°/s로 움직여서, 시각이 1 s 틀리면 궤적을 따라 약 1° 어긋나요. 구간: 노출 중간 시점 (프레임 시작 + ${half} s)의 태양 기준. ISS 궤도 요소 기준 시각 ${epoch} KST.` |
+| `log.issNote` | ƒ(exp, half, epoch) → `A = EXIF marks the exposure start; B = EXIF marks the end (true start ${exp} s earlier). The ISS moves ≈ 1°/s here, so 1 s of timing error ≈ 1° along the track. Band: Sun at mid-exposure (frame start + ${half} s). ISS element epoch ${epoch} KST.` | ƒ(exp, half, epoch) → `A = EXIF 시각이 노출 시작, B = EXIF 시각이 노출 끝 (실제 시작은 ${exp}초 앞). 여기서 ISS는 약 1°/초로 움직여서, 시각이 1초 틀리면 궤적을 따라 약 1° 어긋나요. 구간: 노출 중간 시점 (프레임 시작 + ${half}초)의 태양 기준. ISS 궤도 요소 기준 시각 ${epoch} KST.` |
 | `log.issCsv` | Download ISS timing CSV | ISS 시각 CSV 내려받기 |
 | `log.issNone` | The ISS does not enter this frame during the logged run (check pointing, start time and frame count). | 기록한 촬영 동안 ISS가 이 화면에 들어오지 않아요 (카메라 방향, 시작 시각, 프레임 수를 확인하세요). |
 | `log.noObservers` | No observers entered | 관측자 없음 |
@@ -222,7 +224,7 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `log.before` | Before shooting | 촬영 전 |
 | `log.after` | After shooting | 촬영 뒤 |
 | `log.howTitle` | How to take the time.is photos | time.is 사진 찍는 법 |
-| `log.how` | Use a <b>fast shutter speed (e.g. 1/100 s)</b> so the digits are sharp. Take <b>5–10 shots before and 5–10 after</b>, a few seconds apart, without changing the camera time settings. EXIF DateTimeOriginal has whole-second resolution (CIPA DC-008), and time.is shows whole seconds, so one reading is only good to about ±1 s. Readings taken at different fractions of a second average to a much better estimate. If your files contain <code>SubSecTimeOriginal</code> (check with <code>exiftool -time:all</code>), enter the EXIF time to the second and note the fraction in Notes. | 숫자가 또렷하게 <b>빠른 셔터 속도 (예: 1/100 s)</b>로 찍으세요. 카메라 시간 설정은 바꾸지 말고, 몇 초 간격으로 <b>시작 전 5–10장, 끝난 뒤 5–10장</b> 찍으세요. EXIF DateTimeOriginal은 초 단위이고 (CIPA DC-008) time.is도 초 단위라서 한 장으로는 약 ±1 s밖에 안 돼요. 초의 다른 순간에 찍은 여러 장을 평균하면 훨씬 정확해져요. 파일에 <code>SubSecTimeOriginal</code>이 있으면 (<code>exiftool -time:all</code>로 확인) EXIF 시각은 초까지 적고 소수 부분은 메모에 적으세요. |
+| `log.how` | Use a <b>fast shutter speed (e.g. 1/100 s)</b> so the digits are sharp. Take <b>5–10 shots before and 5–10 after</b>, a few seconds apart, without changing the camera time settings. EXIF DateTimeOriginal has whole-second resolution (CIPA DC-008), and time.is shows whole seconds, so one reading is only good to about ±1 s. Readings taken at different fractions of a second average to a much better estimate. If your files contain <code>SubSecTimeOriginal</code> (check with <code>exiftool -time:all</code>), enter the EXIF time to the second and note the fraction in Notes. | 숫자가 또렷하게 <b>빠른 셔터 속도 (예: 1/100초)</b>로 찍으세요. 카메라 시간 설정은 바꾸지 말고, 몇 초 간격으로 <b>시작 전 5–10장, 끝난 뒤 5–10장</b> 찍으세요. EXIF DateTimeOriginal은 초 단위이고 (CIPA DC-008) time.is도 초 단위라서 한 장으로는 약 ±1초밖에 안 돼요. 초의 다른 순간에 찍은 여러 장을 평균하면 훨씬 정확해져요. 파일에 <code>SubSecTimeOriginal</code>이 있으면 (<code>exiftool -time:all</code>로 확인) EXIF 시각은 초까지 적고 소수 부분은 메모에 적으세요. |
 | `log.conditions` | Conditions | 관측 조건 |
 | `log.weather` | Weather (wind, humidity, dew, temperature) | 날씨 (바람, 습도, 이슬, 기온) |
 | `log.moon` | Moon | 달 |
@@ -233,8 +235,8 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `log.focal` | Focal length (mm) | 초점 거리 (mm) |
 | `log.iso` | ISO | ISO |
 | `log.aperture` | Aperture (f/) | 조리개 (f/) |
-| `log.exposure` | Exposure (s) | 노출 (s) |
-| `log.interval` | Interval (s) | 간격 (s) |
+| `log.exposure` | Exposure (s) | 노출 (초) |
+| `log.interval` | Interval (s) | 간격 (초) |
 | `log.nightSite` | Night &amp; site | 날짜와 장소 |
 | `log.nightDate` | Night (evening date) | 관측일 (저녁 날짜) |
 | `log.gpsAcc` | GPS accuracy (m) | GPS 정확도 (m) |
@@ -265,8 +267,8 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `log.addReading` | Add a reading | 한 줄 더 추가 |
 | `log.notMeasured` | <b>Not measured yet.</b> Without it, camera times are used as true times. | <b>아직 안 쟀어요.</b> 재기 전에는 카메라 시각을 실제 시각으로 써요. |
 | `log.clock` | ƒ(before, after, drift) → `before ${before}, after ${after}${drift !== null ? `, drift ${drift}` : ""} <span class="sec">(+ = camera fast)</span>` | ƒ(before, after, drift) → `시작 전 ${before}, 끝난 뒤 ${after}${drift !== null ? `, 변화 ${drift}` : ""} <span class="sec">(+ = 카메라가 빠름)</span>` |
-| `log.driftWarn` | Clock drift over 2 s: check both time.is photos. | 시계 오차 변화가 2 s보다 커요: 두 time.is 사진을 다시 확인하세요. |
-| `log.intWarn` | ƒ(eff, set) → `Effective interval ${eff} s differs from the ${set} s setting. Check the frame count and the end time; frame numbers below assume ${set} s.` | ƒ(eff, set) → `실제 간격 ${eff} s가 설정값 ${set} s와 달라요. 프레임 수와 끝 시각을 확인하세요. 아래 프레임 번호는 ${set} s 기준이에요.` |
+| `log.driftWarn` | Clock drift over 2 s: check both time.is photos. | 시계 오차 변화가 2초보다 커요: 두 time.is 사진을 다시 확인하세요. |
+| `log.intWarn` | ƒ(eff, set) → `Effective interval ${eff} s differs from the ${set} s setting. Check the frame count and the end time; frame numbers below assume ${set} s.` | ƒ(eff, set) → `실제 간격 ${eff}초가 설정값 ${set}초와 달라요. 프레임 수와 끝 시각을 확인하세요. 아래 프레임 번호는 ${set}초 기준이에요.` |
 | `log.convExif` | ƒ(t, fr, sa, band) → `True ${t} · frame ${fr} · Sun ${sa}° at mid-exposure · <b>${band}</b>` | ƒ(t, fr, sa, band) → `실제 ${t} · 프레임 ${fr} · 노출 중간 시점 태양 ${sa}° · <b>${band}</b>` |
 | `log.outsideRun` | outside run | 촬영 밖 |
 | `log.convFrame` | ƒ(n, t, sa, band) → `Frame ${n}: starts ${t} true · Sun ${sa}° at mid-exposure · <b>${band}</b>` | ƒ(n, t, sa, band) → `프레임 ${n}: 실제 ${t} 시작 · 노출 중간 시점 태양 ${sa}° · <b>${band}</b>` |
@@ -276,14 +278,14 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `log.trueEnd` | True end | 실제 끝 |
 | `log.effInterval` | Effective interval | 실제 간격 |
 | `log.corrected` |  (corrected) |  (보정함) |
-| `log.late` | ƒ(min, after) → ` · ${min} min ${after ? "after" : "before"} the planned start` | ƒ(min, after) → ` · 계획보다 ${min} min ${after ? "늦음" : "이름"}` |
+| `log.late` | ƒ(min, after) → ` · ${min} min ${after ? "after" : "before"} the planned start` | ƒ(min, after) → ` · 계획보다 ${min}분 ${after ? "늦음" : "이름"}` |
 | `log.enterStart` | enter the start time | 시작 시각을 입력하세요 |
-| `log.effVal` | ƒ(eff, n) → `${eff} s (${n} frames)` | ƒ(eff, n) → `${eff} s (${n}프레임)` |
+| `log.effVal` | ƒ(eff, n) → `${eff} s (${n} frames)` | ƒ(eff, n) → `${eff}초 (${n}프레임)` |
 | `log.thBand` | Band | 구간 |
 | `log.thSunTimes` | Sun-angle times (KST) | 태양 고도 시각 (KST) |
 | `log.thActual` | Frames (actual) | 프레임 (실제) |
 | `log.thPlanned` | Planned | 계획 |
-| `log.bandNote` | ƒ(half, interval, start, e, i) → `A frame belongs to a band if the Sun’s altitude at its mid-exposure (frame start + ${half} s) is inside the band; frames from the true start and the ${interval}-s interval. "Planned" assumes the scheduled start (${start}) with the planned ${e}-s exposure and ${i}-s interval.` | ƒ(half, interval, start, e, i) → `노출 중간 시점 (프레임 시작 + ${half} s)의 태양 고도가 구간 안에 있으면 그 프레임은 그 구간에 들어가요. 프레임은 실제 시작과 간격 ${interval} s로 셌어요. “계획”은 예정한 시작 (${start}), 노출 ${e} s, 간격 ${i} s 기준이에요.` |
+| `log.bandNote` | ƒ(half, interval, start, e, i) → `A frame belongs to a band if the Sun’s altitude at its mid-exposure (frame start + ${half} s) is inside the band; frames from the true start and the ${interval}-s interval. "Planned" assumes the scheduled start (${start}) with the planned ${e}-s exposure and ${i}-s interval.` | ƒ(half, interval, start, e, i) → `노출 중간 시점 (프레임 시작 + ${half}초)의 태양 고도가 구간 안에 있으면 그 프레임은 그 구간에 들어가요. 프레임은 실제 시작과 간격 ${interval}초로 셌어요. “계획”은 예정한 시작 (${start}), 노출 ${e}초, 간격 ${i}초 기준이에요.` |
 
 ## Satellites tab
 
@@ -308,7 +310,7 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `sats.busyFile` | Preparing file… | 파일 준비 중… |
 | `sats.busyDelete` | Deleting… | 지우는 중… |
 | `sats.confirmDelete` | Delete this element set from this device? This cannot be undone. | 이 궤도 요소를 이 기기에서 지울까요? 되돌릴 수 없어요. |
-| `sats.busyPasses` | Computing ISS passes… | ISS 하늘 통과 계산 중… |
+| `sats.busyPasses` | Computing ISS passes… | ISS 통과 계산 중… |
 | `sats.loadFirst` | Load an element set first. | 먼저 궤도 요소를 불러오세요. |
 | `sats.busyLoading` | ƒ(name) → `Loading ${name}…` | ƒ(name) → `${name} 불러오는 중…` |
 | `sats.setNotFound` | Element set not found. | 궤도 요소를 찾을 수 없어요. |
@@ -356,22 +358,22 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `sats.fov` | Field of view (landscape) | 화각 (가로 방향) |
 | `sats.diagonal` | ƒ(d) → `diagonal ${d}°` | ƒ(d) → `대각선 ${d}°` |
 | `sats.cameraNote` | ƒ(dir) → `Azimuth from north through east (${dir}). FOV = 2·atan(sensor ÷ 2f). Frame test: gnomonic projection about the pointing direction, horizon level.` | ƒ(dir) → `방위각은 북쪽에서 동쪽으로 잰 값 (${dir}). 화각 = 2·atan(센서 ÷ 2f). 화면 판정: 카메라 방향 중심의 심사 도법, 수평 맞춤.` |
-| `sats.recompute` | Recompute crossings | 통과 다시 계산 |
-| `sats.compute` | Compute crossings | 통과 계산 |
+| `sats.recompute` | Recompute crossings | 화각 통과 다시 계산 |
+| `sats.compute` | Compute crossings | 화각 통과 계산 |
 | `sats.inFrame` | ƒ(d) → `In the frame · ${d}` | ƒ(d) → `화면 안 · ${d}` |
-| `sats.computeIss` | Compute crossings to see whether the ISS crosses the frame tonight. | 통과를 계산하면 오늘 밤 ISS가 화면을 지나가는지 알 수 있어요. |
+| `sats.computeIss` | Compute crossings to see whether the ISS crosses the frame tonight. | 화각 통과를 계산하면 오늘 밤 ISS가 화면을 지나가는지 알 수 있어요. |
 | `sats.loadSetFirst` | Load an element set first (Orbital elements, below). | 먼저 궤도 요소를 불러오세요 (아래 궤도 요소). |
-| `sats.computeNote` | ƒ(a, b) → `Propagates every object at 10-s steps over ${a}–${b} KST and finds those that are above the horizon, sunlit and inside the frame. Takes ~10–40 s on a phone.` | ƒ(a, b) → `${a}–${b} KST 동안 모든 천체를 10 s 간격으로 계산해서, 지평선 위에 있고 햇빛을 받으며 화면 안에 들어오는 천체를 찾아요. 휴대폰에서 약 10–40 s 걸려요.` |
-| `sats.bandMin` | ƒ(band, m) → `${band} band · ${m} min` | ƒ(band, m) → `${band} 구간 · ${m} min` |
-| `sats.perH` | ƒ(h) → `crossings · ${h}/h` | ƒ(h) → `통과 · ${h}/h` |
+| `sats.computeNote` | ƒ(a, b) → `Propagates every object at 10-s steps over ${a}–${b} KST and finds those that are above the horizon, sunlit and inside the frame. Takes ~10–40 s on a phone.` | ƒ(a, b) → `${a}–${b} KST 동안 모든 천체를 10초 간격으로 계산해서, 지평선 위에 있고 햇빛을 받으며 화면 안에 들어오는 천체를 찾아요. 휴대폰에서 약 10–40초 걸려요.` |
+| `sats.bandMin` | ƒ(band, m) → `${band} band · ${m} min` | ƒ(band, m) → `${band} 구간 · ${m}분` |
+| `sats.perH` | ƒ(h) → `crossings · ${h}/h` | ƒ(h) → `화각 통과 · ${h}/시간` |
 | `sats.detectable` | predicted detectable: | 검출 가능 예측: |
 | `sats.peak` | Peak | 피크 |
 | `sats.matched` | Matched filter | 정합 필터 |
 | `sats.fixedLe` | ƒ(l) → `fixed ≤ ${l}` | ƒ(l) → `고정 ≤ ${l}` |
 | `sats.unknownBright` | ƒ(n) → `${n} with unknown brightness` | ƒ(n) → `밝기 모름 ${n}개` |
-| `sats.leoOnly` | ƒ(n, hidden) → `LEO only (period &lt; 128 min) · ${n} MEO/GEO/HEO ${hidden ? "hidden" : "included"}` | ƒ(n, hidden) → `LEO만 (주기 &lt; 128 min) · MEO/GEO/HEO ${n}개 ${hidden ? "숨김" : "포함"}` |
-| `sats.summary` | ƒ(gap, out, objs, failed, merged, station, stKm, trains, trKm, steps, secs, when) → `Also ${gap} between the bands and ${out} in the 5-min margins. ${objs} objects propagated, ${failed} failed (decayed / SGP4 error), ${merged} merged (identical element sets: docked modules/vehicles), ${station} merged into a crewed station (within ${stKm} km of the ISS or Tiangong while in frame), ${trains} crossings flagged train (another crossing object within ${trKm} km) · ${steps} steps · ${secs} s. Elements: ${when} KST.` | ƒ(gap, out, objs, failed, merged, station, stKm, trains, trKm, steps, secs, when) → `그 밖에 구간 사이 ${gap}개, 앞뒤 5 min 여유 시간 ${out}개. 계산한 천체 ${objs}개, 실패 ${failed}개 (추락 / SGP4 오류), 합침 ${merged}개 (궤도 요소가 같음: 도킹된 모듈·비행체), 유인 우주정거장에 합침 ${station}개 (화면 안에 있는 동안 ISS나 톈궁에서 ${stKm} km 이내), 줄지어 비행 표시 ${trains}개 (다른 통과 천체가 ${trKm} km 이내) · ${steps}단계 · ${secs} s. 궤도 요소: ${when} KST.` |
-| `sats.crossings` | ƒ(n) → `Crossings (${n})` | ƒ(n) → `통과 (${n})` |
+| `sats.leoOnly` | ƒ(n, hidden) → `LEO only (period &lt; 128 min) · ${n} MEO/GEO/HEO ${hidden ? "hidden" : "included"}` | ƒ(n, hidden) → `LEO만 (주기 &lt; 128분) · MEO/GEO/HEO ${n}개 ${hidden ? "숨김" : "포함"}` |
+| `sats.summary` | ƒ(gap, out, objs, failed, merged, station, stKm, trains, trKm, steps, secs, when) → `Also ${gap} between the bands and ${out} in the 5-min margins. ${objs} objects propagated, ${failed} failed (decayed / SGP4 error), ${merged} merged (identical element sets: docked modules/vehicles), ${station} merged into a crewed station (within ${stKm} km of the ISS or Tiangong while in frame), ${trains} crossings flagged train (another crossing object within ${trKm} km) · ${steps} steps · ${secs} s. Elements: ${when} KST.` | ƒ(gap, out, objs, failed, merged, station, stKm, trains, trKm, steps, secs, when) → `그 밖에 구간 사이 ${gap}개, 앞뒤 5분 여유 시간 ${out}개. 계산한 천체 ${objs}개, 실패 ${failed}개 (추락 / SGP4 오류), 합침 ${merged}개 (궤도 요소가 같음: 도킹된 모듈·비행체), 유인 우주정거장에 합침 ${station}개 (화면 안에 있는 동안 ISS나 톈궁에서 ${stKm} km 이내), 줄지어 비행 표시 ${trains}개 (다른 화각 통과 천체가 ${trKm} km 이내) · ${steps}단계 · ${secs}초. 궤도 요소: ${when} KST.` |
+| `sats.crossings` | ƒ(n) → `Crossings (${n})` | ƒ(n) → `화각 통과 (${n})` |
 | `sats.thEnterExit` | Enter / exit (KST) | 들어옴 / 나감 (KST) |
 | `sats.thObject` | Object | 천체 |
 | `sats.thMaxAlt` | Max alt | 최고 고도 |
@@ -380,26 +382,26 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `sats.version` | ƒ(v) → `version ${v}` | ƒ(v) → `버전 ${v}` |
 | `sats.docked` | ƒ(n) → ` · +${n} docked/visiting` | ƒ(n) → ` · 도킹된 비행체 +${n}` |
 | `sats.train` | ƒ(n, km) → ` · <b>train</b> (${n} within ${km} km)` | ƒ(n, km) → ` · <b>줄지어 비행</b> (${km} km 이내 ${n}개)` |
-| `sats.listNote` | * already inside the frame at window start / still inside at window end. Entry/exit refined to 0.1 s; band from the Sun’s altitude at the crossing midpoint. Mag = brightest predicted magnitude in the frame (10-s samples); below it the limit that applies to this crossing and the trail length in one frame; bold = predicted detectable. “—” = no published intrinsic magnitude; “a” = assumed value. Starlink versions from GCAT; “version uncertain / not-in-gcat” = no magnitude assigned. Geostationary and GPS-type (MEO) objects barely move in 15 s and many stay in the frame for the whole window, so they are not counted as crossings by default. The CSV always contains every object, with its regime. | * 촬영 시작 때 이미 화면 안 / 촬영 끝날 때 아직 화면 안. 들어옴/나감은 0.1 s까지 계산, 구간은 통과 중간 시점의 태양 고도 기준. 등급 = 화면 안에서 가장 밝은 예측 등급 (10 s 표본). 그 아래는 이 통과에 적용되는 한계 등급과 한 프레임의 궤적 길이. 굵은 글씨 = 검출 가능 예측. “—” = 발표된 고유 등급 없음, “a” = 가정한 값. 스타링크 버전은 GCAT 기준, “version uncertain / not-in-gcat” = 등급을 정하지 않음. 정지궤도와 GPS 같은 중궤도(MEO) 천체는 15 s 동안 거의 움직이지 않고 대부분 촬영 내내 화면에 있어서 기본으로는 통과로 세지 않아요. CSV에는 모든 천체가 궤도 종류와 함께 들어 있어요. |
+| `sats.listNote` | * already inside the frame at window start / still inside at window end. Entry/exit refined to 0.1 s; band from the Sun’s altitude at the crossing midpoint. Mag = brightest predicted magnitude in the frame (10-s samples); below it the limit that applies to this crossing and the trail length in one frame; bold = predicted detectable. “—” = no published intrinsic magnitude; “a” = assumed value. Starlink versions from GCAT; “version uncertain / not-in-gcat” = no magnitude assigned. Geostationary and GPS-type (MEO) objects barely move in 15 s and many stay in the frame for the whole window, so they are not counted as crossings by default. The CSV always contains every object, with its regime. | * 촬영 시작 때 이미 화면 안 / 촬영 끝날 때 아직 화면 안. 들어옴/나감은 0.1초까지 계산, 구간은 화각 통과 중간 시점의 태양 고도 기준. 등급 = 화면 안에서 가장 밝은 예측 등급 (10초 표본). 그 아래는 이 화각 통과에 적용되는 한계 등급과 한 프레임의 궤적 길이. 굵은 글씨 = 검출 가능 예측. “—” = 발표된 고유 등급 없음, “a” = 가정한 값. 스타링크 버전은 GCAT 기준, “version uncertain / not-in-gcat” = 등급을 정하지 않음. 정지궤도와 GPS 같은 중궤도(MEO) 천체는 15초 동안 거의 움직이지 않고 대부분 촬영 내내 화면에 있어서 기본으로는 화각 통과로 세지 않아요. CSV에는 모든 천체가 궤도 종류와 함께 들어 있어요. |
 | `sats.csv` | Download CSV | CSV 내려받기 |
 | `sats.issBadge` | ISS | ISS |
 | `sats.issCrosses` | Crosses this frame tonight | 오늘 밤 이 화면을 지나가요 |
 | `sats.issNo` | Does not enter this frame tonight | 오늘 밤 이 화면에는 안 들어와요 |
-| `sats.issNoPass` | No ISS pass during the shooting window | 촬영 시간에 ISS 하늘 통과가 없어요 |
+| `sats.issNoPass` | No ISS pass during the shooting window | 촬영 시간에 ISS 통과가 없어요 |
 | `sats.enters` | Enters | 들어옴 |
 | `sats.exits` | Exits | 나감 |
 | `sats.issFrames` | ƒ(a, b) → `Frames ${a}${b !== null && b !== a ? `–${b}` : ""}` | ƒ(a, b) → `프레임 ${a}${b !== null && b !== a ? `–${b}` : ""}` |
 | `sats.ifOnTime` |  if started on time ·  |  (정시 시작 기준) ·  |
-| `sats.inFrameS` | ƒ(s) → `${s} s in frame` | ƒ(s) → `화면 안 ${s} s` |
+| `sats.inFrameS` | ƒ(s) → `${s} s in frame` | ƒ(s) → `화면 안 ${s}초` |
 | `sats.bandOf` | ƒ(band) → `${band} band` | ƒ(band) → `${band} 구간` |
 | `sats.issDetail` | ƒ(alt, mag, trail, lims) → `Max alt ${alt}° · predicted mag ${mag}${trail !== null ? ` · trail ≈ ${trail} px per frame` : ""}${lims ?? ""}` | ƒ(alt, mag, trail, lims) → `최고 고도 ${alt}° · 예측 등급 ${mag}${trail !== null ? ` · 궤적 길이 약 ${trail} px/프레임` : ""}${lims ?? ""}` |
 | `sats.issLims` | ƒ(p, pd, m, md) → ` · Peak limit ${p} → ${pd ? "detectable" : "not detectable"} · Matched-filter limit ${m} → ${md ? "detectable" : "not detectable"}` | ƒ(p, pd, m, md) → ` · 피크 한계 ${p} → ${pd ? "검출 가능" : "검출 불가"} · 정합 필터 한계 ${m} → ${md ? "검출 가능" : "검출 불가"}` |
-| `sats.pass` | ƒ(t) → `Pass: ${t}` | ƒ(t) → `하늘 통과: ${t}` |
+| `sats.pass` | ƒ(t) → `Pass: ${t}` | ƒ(t) → `통과: ${t}` |
 | `sats.passVisible` | ƒ(a, b, c) → `visible ${a} → highest ${b} → ${c}` | ƒ(a, b, c) → `보임 ${a} → 가장 높음 ${b} → ${c}` |
 | `sats.passNotVisible` | ƒ(a, b) → `above horizon ${a}–${b} but not visible (in shadow or Sun too high)` | ƒ(a, b) → `${a}–${b} 지평선 위지만 안 보임 (그림자 속이거나 태양이 너무 높음)` |
 | `sats.passOtherFrames` | The ISS column in the pointing table shows the frames it does cross. | ISS가 지나가는 화면은 카메라 방향 비교 표의 ISS 열에 있어요. |
 | `sats.magTitle` | Brightness and detection model | 밝기와 검출 모델 |
-| `sats.starLimit` | ƒ(e) → `Star limit, ${e}-s frame` | ƒ(e) → `별 한계 등급, ${e} s 프레임` |
+| `sats.starLimit` | ƒ(e) → `Star limit, ${e}-s frame` | ƒ(e) → `별 한계 등급, ${e}초 프레임` |
 | `sats.placeholder` | (placeholder) | (임시값) |
 | `sats.fwhm` | PSF FWHM (px) | PSF FWHM (px) |
 | `sats.pixels` | Pixels across sensor | 센서 가로 픽셀 수 |
@@ -411,7 +413,7 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `sats.lawLambert` | Diffuse (Lambert) sphere | 확산 (램버트) 구 |
 | `sats.assumed` | Assumed 1000-km mag for objects with no published value | 발표된 값이 없는 천체에 가정할 1000 km 등급 |
 | `sats.assumedPh` | leave blank = unknown | 비우면 = 모름 |
-| `sats.magNote` | ƒ(e, star, lim) → `m = m₁₀₀₀ + 5·log₁₀(range/1000 km) − 2.5·log₁₀F(phase angle), F = 1 at 90°. m₁₀₀₀ from Mallama &amp; Cole’s compiled table (Starlink by version, OneWeb, Amazon Leo, Qianfan) and Heavens-Above (ISS); see README for every source and flag. Two trailing-loss models on the same samples, with x = trail length ÷ FWHM (trail length = angular speed × ${e} s ÷ pixel scale): <b>Peak</b> m<sub>lim,sat</sub> = m<sub>lim,star</sub> − 2.5·log₁₀x (Hainaut &amp; Williams 2020, A&amp;A 636, A121, §5); <b>Matched filter</b> m<sub>lim,sat</sub> = m<sub>lim,star</sub> − 1.25·log₁₀(1 + 0.67x²/(1 + 1.16x)) (Jones et al. 2018, Icarus, Eqs. 4–5, SNR trailing loss). For a 500-px streak at FWHM 2 px they give losses of 6.0 and 2.7 mag. In the list: P = Peak limit, M = Matched-filter limit, ✓ = detectable. All limits (star limit ${star}, fixed limit ${lim}) are <b>placeholders</b> until you calibrate them from your photos. Changing the phase law needs a recompute.` | ƒ(e, star, lim) → `m = m₁₀₀₀ + 5·log₁₀(거리/1000 km) − 2.5·log₁₀F(위상각), 90°에서 F = 1. m₁₀₀₀은 Mallama &amp; Cole이 정리한 표 (스타링크 버전별, OneWeb, Amazon Leo, Qianfan)와 Heavens-Above (ISS)에서 가져왔어요. 모든 출처와 표시는 README에 있어요. 같은 표본에 궤적 손실 모델 두 개를 써요. x = 궤적 길이 ÷ FWHM (궤적 길이 = 각속도 × ${e} s ÷ 픽셀 크기): <b>피크</b> m<sub>lim,sat</sub> = m<sub>lim,star</sub> − 2.5·log₁₀x (Hainaut &amp; Williams 2020, A&amp;A 636, A121, §5), <b>정합 필터</b> m<sub>lim,sat</sub> = m<sub>lim,star</sub> − 1.25·log₁₀(1 + 0.67x²/(1 + 1.16x)) (Jones et al. 2018, Icarus, Eqs. 4–5, SNR trailing loss). FWHM 2 px에서 500 px 궤적이면 손실은 6.0등급과 2.7등급이에요. 목록에서 P = 피크 한계, M = 정합 필터 한계, ✓ = 검출 가능. 모든 한계 (별 한계 ${star}, 고정 한계 ${lim})는 사진으로 보정하기 전까지 <b>임시값</b>이에요. 위상 법칙을 바꾸면 다시 계산해야 해요.` |
+| `sats.magNote` | ƒ(e, star, lim) → `m = m₁₀₀₀ + 5·log₁₀(range/1000 km) − 2.5·log₁₀F(phase angle), F = 1 at 90°. m₁₀₀₀ from Mallama &amp; Cole’s compiled table (Starlink by version, OneWeb, Amazon Leo, Qianfan) and Heavens-Above (ISS); see README for every source and flag. Two trailing-loss models on the same samples, with x = trail length ÷ FWHM (trail length = angular speed × ${e} s ÷ pixel scale): <b>Peak</b> m<sub>lim,sat</sub> = m<sub>lim,star</sub> − 2.5·log₁₀x (Hainaut &amp; Williams 2020, A&amp;A 636, A121, §5); <b>Matched filter</b> m<sub>lim,sat</sub> = m<sub>lim,star</sub> − 1.25·log₁₀(1 + 0.67x²/(1 + 1.16x)) (Jones et al. 2018, Icarus, Eqs. 4–5, SNR trailing loss). For a 500-px streak at FWHM 2 px they give losses of 6.0 and 2.7 mag. In the list: P = Peak limit, M = Matched-filter limit, ✓ = detectable. All limits (star limit ${star}, fixed limit ${lim}) are <b>placeholders</b> until you calibrate them from your photos. Changing the phase law needs a recompute.` | ƒ(e, star, lim) → `m = m₁₀₀₀ + 5·log₁₀(거리/1000 km) − 2.5·log₁₀F(위상각), 90°에서 F = 1. m₁₀₀₀은 Mallama &amp; Cole이 정리한 표 (스타링크 버전별, OneWeb, Amazon Leo, Qianfan)와 Heavens-Above (ISS)에서 가져왔어요. 모든 출처와 표시는 README에 있어요. 같은 표본에 궤적 손실 모델 두 개를 써요. x = 궤적 길이 ÷ FWHM (궤적 길이 = 각속도 × ${e}초 ÷ 픽셀 크기): <b>피크</b> m<sub>lim,sat</sub> = m<sub>lim,star</sub> − 2.5·log₁₀x (Hainaut &amp; Williams 2020, A&amp;A 636, A121, §5), <b>정합 필터</b> m<sub>lim,sat</sub> = m<sub>lim,star</sub> − 1.25·log₁₀(1 + 0.67x²/(1 + 1.16x)) (Jones et al. 2018, Icarus, Eqs. 4–5, SNR trailing loss). FWHM 2 px에서 500 px 궤적이면 손실은 6.0등급과 2.7등급이에요. 목록에서 P = 피크 한계, M = 정합 필터 한계, ✓ = 검출 가능. 모든 한계 (별 한계 ${star}, 고정 한계 ${lim})는 사진으로 보정하기 전까지 <b>임시값</b>이에요. 위상 법칙을 바꾸면 다시 계산해야 해요.` |
 | `sats.pointingTitle` | Pointing comparison | 카메라 방향 비교 |
 | `sats.thAzAlt` | Az / alt | 방위각 / 고도 |
 | `sats.thSunDaz` | Sun Δaz | 태양 Δ방위각 |
@@ -421,12 +423,12 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `sats.thPeak` | Peak | 피크 |
 | `sats.thMatched` | Matched | 정합 |
 | `sats.thIss` | ISS in frame | 화면 안 ISS |
-| `sats.issRes` | KST, 10-s | KST, 10 s |
+| `sats.issRes` | KST, 10-s | KST, 10초 |
 | `sats.down` | down | 안 뜸 |
-| `sats.pointingNote` | ƒ(leo, sun) → `${leo ? "LEO crossings" : "Crossings (all regimes)"} per band for the same lens pointed elsewhere (10-s resolution). Bold = highest; shaded = your current pointing if it is on this grid. <b>Sun Δaz</b> = azimuth difference from the Sun at the start of the twilight band (${sun}); small values look towards the residual twilight glow. <b>Moon</b> = smallest angular distance from the frame centre to the Moon while it is up during the window (“down” = below the horizon all window). <b>ISS in frame</b> = first–last 10-s sample with the ISS inside that frame (exact times for your chosen pointing are in the box above). Keep one pointing all night so both bands are comparable.` | ƒ(leo, sun) → `같은 렌즈를 다른 방향으로 돌렸을 때 구간별 ${leo ? "LEO 통과" : "통과 (모든 궤도)"} 수 (10 s 간격). 굵은 글씨 = 가장 많음, 음영 = 지금 카메라 방향 (이 격자에 있을 때). <b>태양 Δ방위각</b> = 박명 구간이 시작할 때 태양과의 방위각 차이 (${sun}). 값이 작으면 남은 박명 빛 쪽을 봐요. <b>달</b> = 촬영 중 달이 떠 있는 동안 화면 중심에서 달까지 가장 가까운 각거리 (“안 뜸” = 촬영 내내 지평선 아래). <b>화면 안 ISS</b> = ISS가 그 화면 안에 있는 첫–마지막 10 s 표본 (고른 방향의 정확한 시각은 위 상자에 있어요). 두 구간을 비교할 수 있도록 밤새 한 방향을 유지하세요.` |
+| `sats.pointingNote` | ƒ(leo, sun) → `${leo ? "LEO crossings" : "Crossings (all regimes)"} per band for the same lens pointed elsewhere (10-s resolution). Bold = highest; shaded = your current pointing if it is on this grid. <b>Sun Δaz</b> = azimuth difference from the Sun at the start of the twilight band (${sun}); small values look towards the residual twilight glow. <b>Moon</b> = smallest angular distance from the frame centre to the Moon while it is up during the window (“down” = below the horizon all window). <b>ISS in frame</b> = first–last 10-s sample with the ISS inside that frame (exact times for your chosen pointing are in the box above). Keep one pointing all night so both bands are comparable.` | ƒ(leo, sun) → `같은 렌즈를 다른 방향으로 돌렸을 때 구간별 ${leo ? "LEO 화각 통과" : "화각 통과 (모든 궤도)"} 수 (10초 간격). 굵은 글씨 = 가장 많음, 음영 = 지금 카메라 방향 (이 격자에 있을 때). <b>태양 Δ방위각</b> = 박명 구간이 시작할 때 태양과의 방위각 차이 (${sun}). 값이 작으면 남은 박명 빛 쪽을 봐요. <b>달</b> = 촬영 중 달이 떠 있는 동안 화면 중심에서 달까지 가장 가까운 각거리 (“안 뜸” = 촬영 내내 지평선 아래). <b>화면 안 ISS</b> = ISS가 그 화면 안에 있는 첫–마지막 10초 표본 (고른 방향의 정확한 시각은 위 상자에 있어요). 두 구간을 비교할 수 있도록 밤새 한 방향을 유지하세요.` |
 | `sats.sunAt` | ƒ(az, dir, t) → `Sun at ${az}° ${dir}, ${t} KST` | ƒ(az, dir, t) → `태양 ${az}° ${dir}, ${t} KST` |
-| `sats.passesTitle` | ISS passes, next 14 days | ISS 하늘 통과, 앞으로 14일 |
-| `sats.findPasses` | Find ISS passes (14 days) | ISS 하늘 통과 찾기 (14일) |
+| `sats.passesTitle` | ISS passes, next 14 days | ISS 통과, 앞으로 14일 |
+| `sats.findPasses` | Find ISS passes (14 days) | ISS 통과 찾기 (14일) |
 | `sats.recomputePasses` | Recompute | 다시 계산 |
 | `sats.passesIntro` | Visible evening passes over the next 14 days (sunlit, highest visible altitude ≥ 30°), to choose a test night. | 시험할 밤을 고르는 용도: 앞으로 14일 동안 저녁에 보이는 통과 (햇빛을 받고, 보이는 최고 고도 ≥ 30°). |
 | `sats.showAll` | Show all visible passes (morning, low) | 보이는 통과 모두 보기 (새벽, 낮은 것) |
@@ -468,13 +470,13 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `outlook.legBands` | twilight / dark band | 박명 / 어두운 구간 |
 | `outlook.legMoon` | Moon up | 달이 뜬 시간 |
 | `outlook.criteriaTitle` | How nights are rated | 밤을 평가하는 기준 |
-| `outlook.criteria` | ƒ(moonNone, moonLow, clear, partly) → [ `<b>Moon index</b> = illuminated % × fraction of the window the Moon is above the horizon (0 = no Moon, 100 = full Moon all window). ≤ ${moonNone}: no Moon; ≤ ${moonLow}: low; above: bright.`, `<b>Cloud</b> = mean total cloud cover over the window (hourly forecast, linearly interpolated, sampled every 10 min). ≤ ${clear}%: clear; ≤ ${partly}%: partly; above: cloudy.`, "<b>Good</b> = no/low Moon and clear. <b>Fair</b> = no/low Moon with partly cloudy or no forecast, or clear with a bright Moon. <b>Poor</b> = the rest.", "Forecasts several days ahead are unreliable; recheck the day before." ] | ƒ(moonNone, moonLow, clear, partly) → [ `<b>달 지수</b> = 달 밝기 % × 촬영 시간 중 달이 지평선 위에 있는 비율 (0 = 달 없음, 100 = 촬영 내내 보름달). ${moonNone} 이하: 달 없음, ${moonLow} 이하: 약함, 그보다 크면: 밝음.`, `<b>구름</b> = 촬영 시간 동안의 평균 전체 구름양 (매시간 예보를 직선으로 이어서 10 min마다 표본). ${clear}% 이하: 맑음, ${partly}% 이하: 구름 조금, 그보다 많으면: 흐림.`, "<b>좋음</b> = 달이 없거나 약하고 맑음. <b>보통</b> = 달이 없거나 약한데 구름 조금이거나 예보 없음, 또는 맑은데 달이 밝음. <b>나쁨</b> = 그 밖의 경우.", "며칠 뒤 예보는 잘 안 맞아요. 전날 다시 확인하세요." ] |
+| `outlook.criteria` | ƒ(moonNone, moonLow, clear, partly) → [ `<b>Moon index</b> = illuminated % × fraction of the window the Moon is above the horizon (0 = no Moon, 100 = full Moon all window). ≤ ${moonNone}: no Moon; ≤ ${moonLow}: low; above: bright.`, `<b>Cloud</b> = mean total cloud cover over the window (hourly forecast, linearly interpolated, sampled every 10 min). ≤ ${clear}%: clear; ≤ ${partly}%: partly; above: cloudy.`, "<b>Good</b> = no/low Moon and clear. <b>Fair</b> = no/low Moon with partly cloudy or no forecast, or clear with a bright Moon. <b>Poor</b> = the rest.", "Forecasts several days ahead are unreliable; recheck the day before." ] | ƒ(moonNone, moonLow, clear, partly) → [ `<b>달 지수</b> = 달 밝기 % × 촬영 시간 중 달이 지평선 위에 있는 비율 (0 = 달 없음, 100 = 촬영 내내 보름달). ${moonNone} 이하: 달 없음, ${moonLow} 이하: 약함, 그보다 크면: 밝음.`, `<b>구름</b> = 촬영 시간 동안의 평균 전체 구름양 (매시간 예보를 직선으로 이어서 10분마다 표본). ${clear}% 이하: 맑음, ${partly}% 이하: 구름 조금, 그보다 많으면: 흐림.`, "<b>좋음</b> = 달이 없거나 약하고 맑음. <b>보통</b> = 달이 없거나 약한데 구름 조금이거나 예보 없음, 또는 맑은데 달이 밝음. <b>나쁨</b> = 그 밖의 경우.", "며칠 뒤 예보는 잘 안 맞아요. 전날 다시 확인하세요." ] |
 | `outlook.tonight` | Tonight | 오늘 밤 |
 | `outlook.noSun35` | Sun does not reach −35° | 태양이 −35°까지 안 내려감 |
 | `outlook.noWindow` | no window | 촬영 시간 없음 |
 | `outlook.windowShots` | ƒ(a, b, n) → `${a}–${b} · ${n} shots` | ƒ(a, b, n) → `${a}–${b} · ${n}장` |
 | `outlook.moon` | ƒ(p, up, idx) → `Moon ${p}% · ${up}${idx !== null ? ` · index ${idx}` : ""}` | ƒ(p, up, idx) → `달 ${p}% · ${up}${idx !== null ? ` · 지수 ${idx}` : ""}` |
 | `outlook.notUp` | not up | 안 뜸 |
-| `outlook.upAll` | ƒ(m) → `up all ${m} min` | ƒ(m) → `${m} min 내내 뜸` |
-| `outlook.upOf` | ƒ(a, b) → `up ${a} of ${b} min` | ƒ(a, b) → `${b} min 중 ${a} min 뜸` |
+| `outlook.upAll` | ƒ(m) → `up all ${m} min` | ƒ(m) → `${m}분 내내 뜸` |
+| `outlook.upOf` | ƒ(a, b) → `up ${a} of ${b} min` | ƒ(a, b) → `${b}분 중 ${a}분 뜸` |
 | `outlook.cloud` | cloud | 구름 |

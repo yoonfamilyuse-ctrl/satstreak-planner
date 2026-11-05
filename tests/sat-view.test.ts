@@ -187,7 +187,8 @@ describe('Satellites tab in Korean', () => {
       expect(card).toContain('프레임 129–135');
       expect(card).toContain('박명 구간');
       expect(card).toMatch(/검출 (가능|불가)/);
-      expect(el.textContent).toContain('통과 (1)');
+      expect(el.textContent).toContain('화각 통과 (1)');
+      expect(card).toContain('화면 안 95초');
       expect(el.textContent).toContain('Hainaut &amp; Williams 2020'.replace('&amp;', '&')); // citation kept
     } finally {
       i18n.setLang('en');

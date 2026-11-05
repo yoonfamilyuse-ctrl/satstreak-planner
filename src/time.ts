@@ -52,10 +52,27 @@ export function fmtHMS(d: Date | null, baseDateStr?: string): string {
   return hms.format(d) + daySuffix(d, baseDateStr);
 }
 
+/**
+ * Time words for display (durations and the "(+1d)" day marker). English by default; the UI language sets them
+ * (i18n/index.ts). Exports never use fmtDuration or the day marker.
+ */
+export interface TimeWords {
+  /** Between hours and minutes, e.g. ' h ' → '2 h 07 min'. */
+  h: string;
+  min: string;
+  day: string;
+  /** Zero-pad minutes after hours ('2 h 07 min'). */
+  pad: boolean;
+}
+let words: TimeWords = { h: ' h ', min: ' min', day: 'd', pad: true };
+export function setTimeWords(w: TimeWords) {
+  words = w;
+}
+
 function daySuffix(d: Date, base?: string): string {
   if (!base) return '';
   const off = dayOffset(d, base);
-  return off === 0 ? '' : ` (${off > 0 ? '+' : ''}${off}d)`;
+  return off === 0 ? '' : ` (${off > 0 ? '+' : ''}${off}${words.day})`;
 }
 
 export function fmtLongDate(dateStr: string): string {
@@ -66,7 +83,7 @@ export function fmtDuration(ms: number): string {
   const totalMin = Math.round(ms / MIN_MS);
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
-  return h > 0 ? `${h} h ${String(m).padStart(2, '0')} min` : `${m} min`;
+  return h > 0 ? `${h}${words.h}${words.pad ? String(m).padStart(2, '0') : m}${words.min}` : `${m}${words.min}`;
 }
 
 const shortDate = new Intl.DateTimeFormat('en-GB', { timeZone: TIME_ZONE, weekday: 'short', month: 'short', day: 'numeric' });

@@ -669,7 +669,7 @@ export class LogView {
     const d = this.derived();
     const plan = d.plan;
     const L = S().log;
-    const s = (x: number | null, u = 's') => (x === null ? '—' : `${x > 0 ? '+' : ''}${x.toFixed(1)} ${u}`);
+    const s = (x: number | null) => (x === null ? '—' : S().common.secs(`${x > 0 ? '+' : ''}${x.toFixed(1)}`));
     const clockTxt =
       d.clock.before === null && d.clock.after === null
         ? L.notMeasured

@@ -4,6 +4,8 @@
  */
 export const en = {
   common: {
+    secs: (x: string | number) => `${x} s`,
+    perHour: (x: string) => `${x}/h`,
     cloudNone: 'no forecast',
     cloud: (t: number, l: number, m: number, h: number) => `${t}% total · low ${l} / mid ${m} / high ${h}`,
     attribution: 'Weather data by Open-Meteo.com',

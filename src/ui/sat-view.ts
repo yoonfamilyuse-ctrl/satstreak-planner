@@ -606,7 +606,7 @@ export class SatView {
       const unknown = dets.filter((x) => x.mag === null).length;
       const m = bandMin(k);
       const perH = (x: number) => (m ? ((x / m) * 60).toFixed(1) : '—');
-      const line = (mdl: DetectionModel, label: string) => `<div class="det-line"><b class="tnum">${cnt(mdl)}</b> <span class="s">${label} · ${perH(cnt(mdl))}/h</span></div>`;
+      const line = (mdl: DetectionModel, label: string) => `<div class="det-line"><b class="tnum">${cnt(mdl)}</b> <span class="s">${label} · ${S().common.perHour(perH(cnt(mdl)))}</span></div>`;
       return `<div class="fact band-fact"><span class="fact-k">${T.bandMin(bandLabel(k), m.toFixed(0))}</span>
         <b class="tnum">${n}</b><span class="fact-s tnum">${T.perH(perH(n))}</span>
         <span class="fact-s" style="margin-top:6px">${T.detectable}</span>

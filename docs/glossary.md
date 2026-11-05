@@ -1,7 +1,7 @@
 # Glossary: fixed Korean terms
 
-One Korean term per research term, used everywhere in the app (`src/i18n/ko.ts`). Units, numbers, KST times,
-catalog numbers and citations are never translated. Exports (CSV/JSON column names, header comments, bundle
+One Korean term per research term, used everywhere in the app (`src/i18n/ko.ts`). Numbers, symbols (°, km, px,
+mag, %), KST times, catalog numbers and citations are never translated. Time words are Korean (see below). Exports (CSV/JSON column names, header comments, bundle
 README) stay in English.
 
 | English | 한국어 | Note |
@@ -16,13 +16,13 @@ README) stay in English.
 | shooting window | 촬영 시간 | |
 | Number of Shots (camera menu) | 촬영 매수 | Sony a7 III Korean menu term |
 | shots | 장 | “476장” |
-| exposure | 노출 | “노출 15 s” |
-| interval | 간격 | “간격 16 s” |
+| exposure | 노출 | “노출 15초” |
+| interval | 간격 | “간격 16초” |
 | mid-exposure | 노출 중간 시점 | |
 | element set / TLE | 궤도 요소(TLE) | fixed by the project; “궤도 요소” after first use |
 | OMM | OMM | not translated |
-| crossing (object passes through the camera frame) | 통과 | fixed by the project |
-| pass (ISS over the sky) | 하늘 통과 | to keep it apart from a frame crossing |
+| crossing (object passes through the camera frame) | 화각 통과 | fixed by the project |
+| pass (ISS over the sky) | 통과 | “ISS 통과” |
 | detectable | 검출 가능 | fixed by the project |
 | not detectable | 검출 불가 | |
 | magnitude | 등급 | |
@@ -67,3 +67,13 @@ README) stay in English.
 | Waning gibbous | 기우는 달 |
 | Last quarter | 하현달 |
 | Waning crescent | 그믐달 |
+
+## Time words
+
+| English | 한국어 | Example |
+|---|---|---|
+| s | 초 | 노출 15초, 10초 간격 |
+| min | 분 | 35분 남음, 앞뒤 5분 여유 시간 |
+| h | 시간 | 2시간 7분 (minutes not zero-padded), 691.6/시간 |
+| d (day offset) | 일 | 09:54 (+1일) |
+| °/s | °/초 | 약 1°/초 |

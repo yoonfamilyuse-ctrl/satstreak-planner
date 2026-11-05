@@ -1,5 +1,5 @@
 import { TIME_ZONE } from '../config';
-import { isValidDateString, kstNoon } from '../time';
+import { isValidDateString, kstNoon, setTimeWords } from '../time';
 import { en, type Strings } from './en';
 import { ko } from './ko';
 
@@ -22,7 +22,10 @@ function initial(): Lang {
   return nav.toLowerCase().startsWith('ko') ? 'ko' : 'en';
 }
 
+const TIME_WORDS = { en: { h: ' h ', min: ' min', day: 'd', pad: true }, ko: { h: '시간 ', min: '분', day: '일', pad: false } };
+
 let lang: Lang = initial();
+setTimeWords(TIME_WORDS[lang]);
 
 export function getLang(): Lang {
   return lang;
@@ -30,6 +33,7 @@ export function getLang(): Lang {
 
 export function setLang(l: Lang) {
   lang = l;
+  setTimeWords(TIME_WORDS[l]);
   try {
     localStorage.setItem(LANG_KEY, l);
   } catch {

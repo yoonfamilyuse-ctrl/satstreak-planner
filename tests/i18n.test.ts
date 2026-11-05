@@ -58,4 +58,23 @@ describe('UI language', () => {
     expect(m.shortDate('2026-11-11')).toBe('Wed 11 Nov');
     expect(m.moonPhase('Waxing crescent')).toBe('Waxing crescent');
   });
+
+  it('Korean time words: 초, 분, 시간, 일; English unchanged', async () => {
+    vi.stubGlobal('navigator', { language: 'ko-KR' });
+    const m = await import('../src/i18n');
+    const { fmtDuration, fmtHM } = await import('../src/time');
+    expect(fmtDuration(127 * 60_000)).toBe('2시간 7분');
+    expect(fmtDuration(35 * 60_000)).toBe('35분');
+    expect(fmtHM(new Date('2026-11-12T00:54:00Z'), '2026-11-11')).toBe('09:54 (+1일)');
+    expect(m.S().night.expInt(15, 16)).toBe('노출 15초, 간격 16초');
+    m.setLang('en');
+    expect(fmtDuration(127 * 60_000)).toBe('2 h 07 min');
+    expect(fmtHM(new Date('2026-11-12T00:54:00Z'), '2026-11-11')).toBe('09:54 (+1d)');
+  });
+
+  it('Korean strings use no English time units (s, min, h, d after a number)', async () => {
+    const shapeVals = (o: any): string[] => Object.values(o).flatMap((v: any) => (typeof v === 'function' ? [v.toString()] : v && typeof v === 'object' ? shapeVals(v) : [String(v)]));
+    const bad = shapeVals(ko).filter((t) => /(\d|\})\s?(s|min|h|d)(?![A-Za-z])/.test(t.replace(/\$\{[a-z]+\}(?=[A-Za-z])/g, '')) && !/°\/s/.test(t));
+    expect(bad).toEqual([]);
+  });
 });
