@@ -1,4 +1,4 @@
-import { STARLINK_LAUNCH_VERSION } from './starlink-versions';
+import { starlinkVersion, type StarlinkVersion } from './starlink-versions';
 
 /**
  * Predicted visual magnitude of a satellite — deliberately simple and transparent:
@@ -46,12 +46,21 @@ export interface Intrinsic {
 const MC = 'Mallama & Cole, Satellite Constellation Magnitudes (table 2026-08-03)';
 
 export const INTRINSIC: Record<string, Intrinsic> = {
-  // Row "SL-V1.0*", ref [6] Mallama 2021, arXiv:2111.09735. VisorSats (same launches era) are 7.21 — not separable here.
-  'starlink-v1': { m1000: 5.89, key: 'SL-V1.0', source: `${MC}; Mallama 2021 arXiv:2111.09735`, flag: 'v1 includes VisorSats (7.21, ~1.3 mag fainter) which cannot be told apart by launch' },
+  // Row "SL-V1.0*", ref [6] Mallama 2021, arXiv:2111.09735 (Original design = GCAT V1.0 launches L1–L7).
+  'starlink-v1': { m1000: 5.89, key: 'SL-V1.0', source: `${MC}; Mallama 2021 arXiv:2111.09735` },
+  // Row "SL-VisorSat*", ref [6] Mallama 2021, arXiv:2111.09735 (GCAT V1.0 launches L8 onwards).
+  'starlink-visorsat': { m1000: 7.21, key: 'SL-VisorSat', source: `${MC}; Mallama 2021 arXiv:2111.09735` },
   // Row "SL-V1.5*", marked ** = unpublished by the table's authors.
   'starlink-v1.5': { m1000: 6.34, key: 'SL-V1.5', source: MC, flag: 'UNPUBLISHED value (marked ** in the table)' },
   // Row "SL-Mini-550*", ref [7] Mallama et al. 2023, arXiv:2306.06657. (The 475-km shell row, 7.35, is unpublished.)
   'starlink-mini': { m1000: 7.22, key: 'SL-Mini-550', source: `${MC}; Mallama et al. 2023 arXiv:2306.06657` },
+  // GCAT bus "Starlink V2MO" (V2 Mini Optimized): no published value found; the V2 Mini value is used.
+  'starlink-mini-opt': {
+    m1000: 7.22,
+    key: 'SL-Mini-550 (for Mini-Opt)',
+    source: `${MC}; Mallama et al. 2023 arXiv:2306.06657`,
+    flag: 'no published value for V2 Mini Optimized; the V2 Mini value is assumed',
+  },
   // Row "SL-Mini-DTC", ref [1] Mallama, Cole, Respler & Harrington 2025, arXiv:2502.03651.
   'starlink-dtc': { m1000: 6.74, key: 'SL-Mini-DTC', source: `${MC}; Mallama et al. 2025 arXiv:2502.03651` },
   // Row "OneWeb", ref [5] Mallama 2022, arXiv:2203.05513.
@@ -69,6 +78,22 @@ export const INTRINSIC: Record<string, Intrinsic> = {
   },
 };
 
+const BY_VERSION: Partial<Record<StarlinkVersion, string>> = {
+  'v1.0-original': 'starlink-v1',
+  visorsat: 'starlink-visorsat',
+  'v1.5': 'starlink-v1.5',
+  mini: 'starlink-mini',
+  'mini-opt': 'starlink-mini-opt',
+  dtc: 'starlink-dtc',
+  // v0.9, v3: no published value. 'uncertain': version not determined from GCAT.
+};
+
+/** Starlink version from GCAT, 'not-in-gcat' for a Starlink newer than the GCAT release, or null for non-Starlink. */
+export function starlinkVersionOf(o: { norad: number; name: string }): StarlinkVersion | 'not-in-gcat' | null {
+  if (!o.name.toUpperCase().startsWith('STARLINK')) return null;
+  return starlinkVersion(o.norad) ?? 'not-in-gcat';
+}
+
 export interface MagObject {
   norad: number;
   name: string;
@@ -81,12 +106,13 @@ export function intrinsicFor(o: MagObject): Intrinsic | null {
   if (o.norad === 25544) return INTRINSIC.iss;
   const name = o.name.toUpperCase();
   if (name.startsWith('STARLINK')) {
-    if (name.includes('[DTC]')) return INTRINSIC['starlink-dtc'];
-    const v = o.cospar ? STARLINK_LAUNCH_VERSION[o.cospar.slice(0, 8)] : undefined;
-    if (v === 'v1') return INTRINSIC['starlink-v1'];
-    if (v === 'v1.5') return INTRINSIC['starlink-v1.5'];
-    if (v === 'v2 mini') return INTRINSIC['starlink-mini'];
-    return null; // v0.9, v3, '(?)', or a launch newer than the table
+    const v = starlinkVersion(o.norad);
+    if (v) {
+      const k = BY_VERSION[v];
+      return k ? INTRINSIC[k] : null;
+    }
+    // Not in this GCAT release (launched later): only CelesTrak's "[DTC]" name suffix identifies a version.
+    return name.includes('[DTC]') ? { ...INTRINSIC['starlink-dtc'], flag: 'not in GCAT release; version from CelesTrak name "[DTC]"' } : null;
   }
   if (name.startsWith('ONEWEB')) return INTRINSIC.oneweb;
   if (name.startsWith('KUIPER')) return INTRINSIC.kuiper;

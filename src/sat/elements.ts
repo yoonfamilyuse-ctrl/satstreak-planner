@@ -1,5 +1,6 @@
 import { json2satrec, twoline2satrec, type OMMJsonObject, type SatRec } from 'satellite.js';
-import { intrinsicFor, type Intrinsic } from './magnitude';
+import { intrinsicFor, starlinkVersionOf, type Intrinsic } from './magnitude';
+import type { StarlinkVersion } from './starlink-versions';
 
 /**
  * Orbital element sets.
@@ -43,6 +44,8 @@ export interface SatEntry {
   cospar?: string;
   /** Published intrinsic (1000-km) magnitude, or null if none applies. */
   intrinsic: Intrinsic | null;
+  /** Starlink version from GCAT ('uncertain' / 'not-in-gcat' are flagged in the UI); undefined for other objects. */
+  starlinkVersion?: StarlinkVersion | 'not-in-gcat';
   /** Element-set epoch (UTC, ms). */
   epoch: number;
   satrec: SatRec;
@@ -99,7 +102,7 @@ export function parseOmmJson(text: string): ParsedSet {
       const name = String(o.OBJECT_NAME ?? id).trim();
       const norad = Number(o.NORAD_CAT_ID);
       const cospar = o.OBJECT_ID ? String(o.OBJECT_ID) : undefined;
-      sats.push({ norad, regime: regimeOf(satrec), name, cospar, intrinsic: intrinsicFor({ norad, name, cospar }), epoch, satrec, omm: o });
+      sats.push({ norad, regime: regimeOf(satrec), name, cospar, intrinsic: intrinsicFor({ norad, name, cospar }), starlinkVersion: starlinkVersionOf({ norad, name }) ?? undefined, epoch, satrec, omm: o });
     } catch (e) {
       failures.push({ id, reason: String((e as Error)?.message ?? e) });
     }
@@ -149,7 +152,7 @@ export function parseTle(text: string): ParsedSet {
       const intl = l.slice(9, 17).trim();
       const yy = Number(intl.slice(0, 2));
       const cospar = /^\d{5}/.test(intl) ? `${yy < 57 ? 2000 + yy : 1900 + yy}-${intl.slice(2)}` : undefined;
-      sats.push({ norad, regime: regimeOf(satrec), cospar, intrinsic: intrinsicFor({ norad, name: name || id, cospar }), name: name || id, epoch: (jd - 2440587.5) * 86_400_000, satrec });
+      sats.push({ norad, regime: regimeOf(satrec), cospar, intrinsic: intrinsicFor({ norad, name: name || id, cospar }), starlinkVersion: starlinkVersionOf({ norad, name: name || id }) ?? undefined, name: name || id, epoch: (jd - 2440587.5) * 86_400_000, satrec });
     } catch (e) {
       failures.push({ id, reason: String((e as Error)?.message ?? e) });
     }

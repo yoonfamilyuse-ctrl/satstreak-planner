@@ -245,13 +245,13 @@ describe('predicted magnitudes', () => {
   it('assigns cited intrinsic magnitudes by object', async () => {
     const { intrinsicFor } = await import('../src/sat/magnitude');
     expect(intrinsicFor({ norad: 25544, name: 'ISS (ZARYA)' })?.m1000).toBe(-1.8);
-    expect(intrinsicFor({ norad: 1, name: 'STARLINK-30000', cospar: '2023-026A' })?.key).toBe('SL-Mini-550');
-    expect(intrinsicFor({ norad: 1, name: 'STARLINK-11072 [DTC]', cospar: '2024-002A' })?.key).toBe('SL-Mini-DTC');
-    expect(intrinsicFor({ norad: 1, name: 'STARLINK-1007', cospar: '2019-074A' })?.key).toBe('SL-V1.0');
+    expect(intrinsicFor({ norad: 1, name: 'ONEWEB-0012', cospar: '2019-010A' })?.key).toBe('OneWeb');
     expect(intrinsicFor({ norad: 1, name: 'ONEWEB-0012', cospar: '2019-010A' })?.key).toBe('OneWeb');
     expect(intrinsicFor({ norad: 1, name: 'COSMOS 2251' })).toBeNull();
     const big = parseElementText(FIXTURE).sats.find((s) => s.norad === 100001)!; // STARLINK-38128
-    expect(big.intrinsic?.key).toBe('SL-Mini-550');
+    expect(big.starlinkVersion).toBe('mini-opt');
+    expect(big.intrinsic?.key).toBe('SL-Mini-550 (for Mini-Opt)');
+    expect(big.intrinsic?.flag).toMatch(/no published value/);
   });
 
   for (const [law, maxRms] of [['fraction', 0.4], ['lambert', 0.8]] as const) {
@@ -301,5 +301,66 @@ describe('pointing geometry helpers', () => {
     expect(s.altitude).toBeCloseTo(-12, 2);
     expect(s.azimuth).toBeGreaterThan(240);
     expect(s.azimuth).toBeLessThan(260);
+  });
+});
+
+describe('Starlink versions from GCAT (per satellite)', () => {
+  it('classifies by GCAT bus / payload name and flags what is uncertain', async () => {
+    const { starlinkVersion } = await import('../src/sat/starlink-versions');
+    const { intrinsicFor, starlinkVersionOf } = await import('../src/sat/magnitude');
+    expect(starlinkVersion(44235)).toBe('v0.9'); // Starlink V0.9-01, 2019-029A
+    expect(starlinkVersion(43216)).toBeNull(); // Tintin A: not named "Starlink" in GCAT
+    expect(starlinkVersion(25544)).toBeNull();
+    // A V1.0 launch L1 satellite is an Original; L8+ are VisorSats (McDowell's grouping).
+    const parse = (norad: number, name: string) => intrinsicFor({ norad, name });
+    const firstOriginal = [...Array(2000).keys()].map((i) => 44700 + i).find((n) => starlinkVersion(n) === 'v1.0-original')!;
+    const firstVisor = [...Array(5000).keys()].map((i) => 45000 + i).find((n) => starlinkVersion(n) === 'visorsat')!;
+    expect(parse(firstOriginal, 'STARLINK-X')?.key).toBe('SL-V1.0');
+    expect(parse(firstVisor, 'STARLINK-X')?.key).toBe('SL-VisorSat');
+    // Newer than the GCAT release: unknown, except the [DTC] name suffix.
+    expect(starlinkVersionOf({ norad: 999999, name: 'STARLINK-99999' })).toBe('not-in-gcat');
+    expect(parse(999999, 'STARLINK-99999')).toBeNull();
+    expect(parse(999999, 'STARLINK-99999 [DTC]')?.flag).toMatch(/not in GCAT/);
+    expect(starlinkVersionOf({ norad: 25544, name: 'ISS (ZARYA)' })).toBeNull();
+  });
+});
+
+describe('trailing loss (Hainaut & Williams 2020)', () => {
+  it('limit falls by 2.5 log10(L / FWHM)', async () => {
+    const { trailingLoss, pixelScaleDeg, trailLengthPx, evaluateDetection } = await import('../src/sat/detection');
+    expect(trailingLoss(2, 2)).toBe(0);
+    expect(trailingLoss(1, 2)).toBe(0);
+    expect(trailingLoss(20, 2)).toBeCloseTo(2.5, 12);
+    expect(trailingLoss(200, 2)).toBeCloseTo(5, 12);
+    const ps = pixelScaleDeg(35.9, 6000, 28);
+    expect(ps).toBeCloseTo(0.01224, 5);
+    // 0.384 deg/s for 15 s ~ 470 px (the typical LEO streak in the README).
+    expect(trailLengthPx(0.384, 15, ps)).toBeCloseTo(470, -1);
+    const s = { mode: 'trailing' as const, starLimit: 9, fixedLimit: 6, fwhmPx: 2, pixelsAcross: 6000, sensorWidthMm: 35.9, focalLengthMm: 28, exposureS: 15 };
+    // One sample: trailRel = magRel + 2.5 log10(omega). m = 3 + 0 = 3; L = 470 px -> limit = 9 - 2.5 log10(235) = 3.07.
+    const x = { m1000: 3, magRel: 0, trailRel: 2.5 * Math.log10(0.384), omegaDegS: 0.384 };
+    const d = evaluateDetection(x, null, s);
+    expect(d.trailPx).toBeCloseTo(470, -1);
+    expect(d.limit).toBeCloseTo(9 - 2.5 * Math.log10(d.trailPx! / 2), 9);
+    expect(d.detectable).toBe(true); // 3.0 <= 3.07
+    expect(evaluateDetection({ ...x, m1000: 3.2 }, null, s).detectable).toBe(false);
+    expect(evaluateDetection({ ...x, m1000: 5.9 }, null, { ...s, mode: 'fixed' }).detectable).toBe(true);
+    expect(evaluateDetection({ ...x, m1000: null }, null, s).detectable).toBeNull();
+    expect(evaluateDetection({ ...x, m1000: null }, 3, s).mag).toBe(3);
+  });
+
+  it('ISS on 2026-11-11 at S/60°: apparent angular speed about 1°/s', () => {
+    const sats = parseElementText(FIXTURE).sats;
+    const r = predictCrossings(sats, {
+      start: Date.UTC(2026, 10, 11, 9, 40),
+      end: Date.UTC(2026, 10, 11, 9, 55),
+      stepS: 10,
+      site: DEFAULT_SITE,
+      camera: { ...DEFAULT_CAMERA, azimuth: 180, altitude: 60 },
+      pointing: [],
+    });
+    const iss = r.crossings.find((c) => c.norad === 25544)!;
+    expect(iss.omegaDegS).toBeGreaterThan(0.6);
+    expect(iss.omegaDegS).toBeLessThan(1.3);
   });
 });

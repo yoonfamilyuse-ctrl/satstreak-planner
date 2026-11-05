@@ -114,18 +114,27 @@ d = observer–satellite range; φ = solar phase angle (Sun–satellite–observ
 
 | Objects (how identified) | m₁₀₀₀ | Table row → reference | Flag |
 |---|---|---|---|
-| ISS (NORAD 25544) | −1.8 | Heavens-Above satellite page, "intrinsic brightness (at 1000 km distance, 50 % illuminated)" | ⚑ read from a search-engine copy of the page; heavens-above.com was unreachable when checked. Please confirm on the site. |
-| Starlink **v1** (launch → version below) | 5.89 | SL-V1.0 → Mallama 2021, arXiv:2111.09735 | ⚑ v1 launches include VisorSats (7.21, ~1.3 mag fainter), which cannot be told apart by launch, so v1 may be predicted too bright |
-| Starlink **v1.5** | 6.34 | SL-V1.5 | ⚑ **UNPUBLISHED**: the table marks this row "**" |
-| Starlink **v2 mini** | 7.22 | SL-Mini-550 → Mallama et al. 2023, arXiv:2306.06657 | The paper's abstract gives 7.87 ± 0.09 for mitigation mode only. The 475-km shell row (7.35) is unpublished. |
-| Starlink **Direct-to-Cell** (name ends "[DTC]") | 6.74 | SL-Mini-DTC → Mallama et al. 2025, arXiv:2502.03651 | That paper's abstract gives 6.47 |
+| ISS (NORAD 25544) | −1.8 | Heavens-Above satellite page, "intrinsic brightness (at 1000 km distance, 50 % illuminated)" | ⚑ **STILL TO BE CONFIRMED** on heavens-above.com (satinfo.aspx?satid=25544). The value was read from a search-engine copy because the site was unreachable when checked. A team member will check it; update `INTRINSIC.iss` in `src/sat/magnitude.ts` and this row if it differs. |
+| Starlink **V1.0 Original** (GCAT: V1.0 launches L1–L7) | 5.89 | SL-V1.0 → Mallama 2021, arXiv:2111.09735 | |
+| Starlink **VisorSat** (GCAT: V1.0 launches L8 onward) | 7.21 | SL-VisorSat → Mallama 2021, arXiv:2111.09735 | |
+| Starlink **V1.5** (GCAT: Groups 2–5) | 6.34 | SL-V1.5 | ⚑ **UNPUBLISHED**: the table marks this row "**" |
+| Starlink **V2 Mini** (GCAT bus V2M) | 7.22 | SL-Mini-550 → Mallama et al. 2023, arXiv:2306.06657 | The paper's abstract gives 7.87 ± 0.09 for mitigation mode only. The 475-km shell row (7.35) is unpublished. |
+| Starlink **V2 Mini Optimized** (GCAT bus V2MO) | 7.22 | V2 Mini value | ⚑ no published value for this variant; the V2 Mini value is assumed |
+| Starlink **V2 Mini Direct-to-Cell** (GCAT bus V2MD) | 6.74 | SL-Mini-DTC → Mallama et al. 2025, arXiv:2502.03651 | That paper's abstract gives 6.47 |
 | OneWeb (ONEWEB-*) | 7.41 | OneWeb → Mallama 2022, arXiv:2203.05513 | That paper reports 7.05 (2021 data); Mallama 2020 reported 7.18. Mallama 2026 (arXiv:2604.13145) reports OneWeb dimming over time. |
 | Amazon Leo (KUIPER-*) | 6.86 | Amazon Leo → Mallama et al. 2026, arXiv:2601.07708 | |
 | Qianfan (QIANFAN-*) | 5.42 | Qianfan → Mallama et al. 2025, arXiv:2505.07194 | That paper's abstract gives 5.24 ± 0.04 |
-| Starlink v0.9, v3, or launched after the version table | — | none found | shown as unknown |
+| Starlink V0.9, V3 | — | none found | shown as unknown |
+| Starlink with **uncertain version** (13 Transporter rideshare satellites, "TSP1/TSP2") or **not in the GCAT release** (launched after the 2026-11-01 data update) | — | — | ⚑ shown as unknown, marked "version uncertain" / "version not-in-gcat" in the crossing list and CSV. A not-in-GCAT Starlink whose CelesTrak name ends "[DTC]" gets the DTC value (flagged). |
 | **All other objects** | — | **no published generic value found** | shown as unknown ("—"). Optionally, you can type an *assumed* m₁₀₀₀ in the app; those predictions are then marked "a" and `m1000_assumed=true` in the CSV. |
 
-*Starlink version* comes from the launch (COSPAR designator, e.g. `2023-026`) via the "Sat. ver." column of Wikipedia's *List of Starlink and Starshield launches*, revision 1383023653 (2026-10-31; the article's counts cite J. McDowell, planet4589.org). The table is embedded in `src/sat/starlink-versions.ts`. In the 2026-11-04 catalogue every Starlink matched: 7,424 v2 mini, 2,554 v1.5, 637 DTC, 566 v1, 26 v3.
+*Starlink version* is looked up **per satellite (NORAD number)** in GCAT:
+- **Source:** McDowell, J. C., 2020, *General Catalog of Artificial Space Objects*, **Release 1.8.8 (2026 Sep 3), data update 2026 Nov 1** (file headers "Updated 2026 Nov 2 0005"), https://planet4589.org/space/gcat, CC-BY-4.0.
+- **Files and columns:** `satcat.tsv` and `satcat100k.tsv`. The second holds the catalog numbers ≥ 100000. The columns used are `Bus` and `PLName`.
+- **Second generation:** GCAT gives the bus directly: `Starlink V2M` (Mini), `V2MO` (Mini Optimized), `V2MD` (Direct-to-Cell), `V3`.
+- **First generation** (bus `Starlink`): the payload name gives the launch. V1.0 launches L1–L7 are Originals; L8 onward are VisorSats; Groups 2–5 are V1.5. This grouping comes from McDowell's Starlink Statistics page, https://planet4589.org/space/con/star/stats.html (accessed 2026-11-05): "Group 1 Early Launches 2-8 (V1.0 L1-7)", "Group 1 Visorsat Launches 9-17 (V1.0 L8-16)", "… 19+ (V1.0 L17+)", "Starlink Group 2/3/4/5 V1.5 Launches".
+- **Reproducibility:** the rules and the generator are in `scripts/gen-starlink-versions.py`; the output is `src/sat/starlink-versions.ts`. To update, download the two GCAT files and rerun the script; the release is written into the file header.
+- **Coverage, 2026-11-04 CelesTrak catalogue:** every Starlink is in GCAT. 4,868 Mini Optimized, 2,556 Mini, 2,553 V1.5, 637 DTC (agreeing exactly with CelesTrak's "[DTC]" names), 455 VisorSat, 111 Original, 27 V3 or uncertain.
 
 **Check against an independent prediction:** Heavens-Above's "Brightness" for the 7 ISS passes above, compared with the app's brightest predicted magnitude in the visible part (`tests/satellites.test.ts`):
 
@@ -136,9 +145,37 @@ d = observer–satellite range; φ = solar phase angle (Sun–satellite–observ
 
 Heavens-Above is itself a model, not a measurement, so this checks consistency, not truth.
 
-**Limitations (read before using the counts in the paper).** The Mallama & Cole values are range-adjusted means over all the phase angles at which the satellites were observed; they are not phase-normalised standard magnitudes, so applying a phase law to them is an approximation. Starlink satellites also scatter light forward far more than any sphere (Mallama 2021), and their brightness changes with attitude and over months to years. Treat predicted magnitudes as roughly ±1 mag. The **limiting magnitude (default 6.0) is a placeholder** until you measure your real detection limit from your photos. The band counts are shown both as "all geometric crossings" and "brighter than the limit", plus a count of crossings with unknown brightness.
+**Limitations (read before using the counts in the paper).** The Mallama & Cole values are range-adjusted means over all the phase angles at which the satellites were observed; they are not phase-normalised standard magnitudes, so applying a phase law to them is an approximation. Starlink satellites also scatter light forward far more than any sphere (Mallama 2021), and their brightness changes with attitude and over months to years. Treat predicted magnitudes as roughly ±1 mag. All limits below are **placeholders** until you measure your real detection limit from your photos.
 
-**CSV columns added:** `mag_pred` (brightest predicted magnitude in frame, empty if unknown), `m1000`, `m1000_assumed`, `mag_source` (table row key), and `mag_geometric_part` (5·log₁₀(d/1000) − 2.5·log₁₀F, so you can recompute with a different m₁₀₀₀ later).
+### Detection limit with trailing loss
+A star's light stays on one PSF-sized spot for the whole 15-s exposure. A LEO satellite moving ~0.4° s⁻¹ spreads its light along a ~470-px streak, so each PSF-sized patch of the streak gets light for only a tiny fraction of the exposure. Following Hainaut & Williams (2020), *On the impact of satellite constellations on astronomical observations with ESO telescopes in the visible and infrared domains*, **A&A 636, A121**, doi:10.1051/0004-6361/202037501, §5, the satellite's limiting magnitude is
+
+```
+m_lim,sat = m_lim,star − 2.5·log₁₀(L / FWHM)        (no loss if L ≤ FWHM)
+L = ω · t_exp / pixel scale        pixel scale = atan(pixel pitch / f)
+```
+
+- **Source wording:** the paper states the 1″-seeing case: "the length of the trail in arcsec will give the attenuation factor in magnitude", 2.5·log v. It defines the effective magnitude as that of "a field star [with] the same peak brightness as the satellite in that exposure" (Fig. 11 caption). We generalise 1″ to the PSF FWHM and measure lengths in pixels.
+- **Conservative:** this is a peak-brightness criterion. Software or an eye that integrates along a long trail can do better.
+- **ω (apparent angular speed):** computed for every in-frame 10-s sample from the topocentric direction at t and t + 1 s (haversine). A crossing counts as detectable if *any* in-frame sample satisfies m ≤ m_lim,sat.
+- **Inputs (settings):**
+  - stellar limiting magnitude of one 15-s frame: **placeholder 9.0**
+  - PSF FWHM: **2 px**
+  - pixels across the sensor: **6000**, from Sony's a7 III specification of 6000 × 4000 effective pixels, giving 44.1″/px at 28 mm
+- **Fixed limit:** the old simple criterion (predicted mag ≤ fixed limit, **placeholder 6.0**) remains available as an option.
+- **Scale of the effect:** at FWHM 2 px, a 470-px streak loses 2.5·log₁₀(235) ≈ 5.9 mag, so with a star limit of 9 a typical Starlink must be brighter than ≈ 3.1 to be "detectable".
+
+Each band shows **all geometric crossings** and **predicted detectable** (after trailing loss, or by the fixed limit if chosen), plus a count of crossings with unknown brightness.
+
+**CSV columns added:**
+- `mag_pred`: brightest predicted magnitude in the frame, empty if unknown
+- `m1000`, `m1000_assumed`, `mag_source` (table row key)
+- `mag_geometric_part`: 5·log₁₀(d/1000) − 2.5·log₁₀F, so you can recompute with a different m₁₀₀₀ later
+- `starlink_version` (GCAT)
+- `angular_speed_deg_s`, `trail_px`
+- `detection_mode`, `limit_applied`, `detectable`
+
+The header comment records every setting used.
 - **Sky chart:** all-sky azimuthal-equidistant plot (zenith at centre, North up, East left). Shows the frame outline, the Moon at window midpoint, and the sunlit above-horizon tracks of objects that cross the frame, coloured by band (dark band also dashed, so it reads in red night mode).
 - **CSV export** of the crossing list includes the element epoch of each object and the set id.
 - The worker propagates the full catalogue (16,873 objects × 762 steps) in ~8 s on a laptop. Expect ~20–40 s on a phone.
@@ -249,7 +286,8 @@ Suggested citation: D. Cross, *Astronomy Engine* v2.1.19, https://github.com/cos
   - **Licence:** Open-Meteo data are published under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Attribution is required, so every place the app shows cloud data carries a "Weather data by Open-Meteo.com" link to https://open-meteo.com/. Any figure or table in the paper that uses these cloud values should carry the same credit.
   - Cite as: Zippenfenig, P. (2023). *Open-Meteo.com Weather API* [Computer software]. Zenodo. https://doi.org/10.5281/ZENODO.7970649
 - **CelesTrak** GP API (https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=json), operated by T. S. Kelso. Orbital elements as OMM JSON, derived from U.S. Space Force (18/19 SDS) data published on Space-Track.org. Format documentation and usage policy: https://celestrak.org/NORAD/documentation/gp-data-formats.php
-- **Heavens-Above** (https://www.heavens-above.com/, Chris Peat): used only once, for validating ISS pass predictions (values copied into the test file).
+- **Heavens-Above** (https://www.heavens-above.com/, Chris Peat): used to validate ISS pass predictions (values copied into the test file) and as the source of the ISS intrinsic magnitude (still to be confirmed).
+- **GCAT** (J. McDowell, https://planet4589.org/space/gcat, Release 1.8.8, data update 2026 Nov 1, CC-BY-4.0): Starlink version per satellite.
 
 ## Notes
 
@@ -280,7 +318,9 @@ src/sat/store.ts       IndexedDB: element sets and per-night locks
 src/sat/celestrak.ts   CelesTrak download with the 2-hour policy
 src/ui/sat-view.ts     Satellites tab;  src/ui/skychart.ts  all-sky chart
 src/sat/magnitude.ts   brightness model and cited intrinsic magnitudes
-src/sat/starlink-versions.ts  Starlink launch → version (pinned Wikipedia revision)
+src/sat/starlink-versions.ts  Starlink version per satellite (GENERATED from GCAT 1.8.8; see scripts/)
+src/sat/detection.ts   trailing-loss detection limit
+scripts/gen-starlink-versions.py  generator for the GCAT-based version table
 src/log/fieldlog.ts    field-log model, clock offset, frame/band timing, CSV
 src/log/zip.ts         minimal ZIP writer for the export bundle
 src/ui/log-view.ts     Log tab
