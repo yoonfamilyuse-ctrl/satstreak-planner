@@ -1,31 +1,50 @@
 /**
- * Detection limit for a trailed satellite.
+ * Detection limit for a trailed satellite — two published models, evaluated side by side on the SAME inputs
+ * (each in-frame 10-s sample's predicted magnitude and apparent angular speed), plus the old fixed limit.
  *
- * A star's light falls on a PSF-sized spot for the whole exposure t. A satellite moving at apparent angular speed ω
- * spreads its light along a trail of length L = ω·t / (pixel scale) pixels, so each PSF-sized resolution element
- * receives light only for t_eff = FWHM / (ω / pixel scale) — the time the trail needs to cross one PSF width.
- * Its peak brightness therefore equals that of a star fainter by 2.5·log₁₀(t / t_eff) = 2.5·log₁₀(L / FWHM):
+ * Trail length in one exposure, in units of the PSF FWHM:   x = L / FWHM,   L = ω·t_exp / (pixel scale)  [px]
  *
- *     m_lim,sat = m_lim,star − 2.5·log₁₀(L / FWHM)        (no loss when L ≤ FWHM)
+ * 1) PEAK (Hainaut & Williams 2020):
+ *        m_lim,sat = m_lim,star − 2.5·log₁₀(x)            (no loss when x ≤ 1)
+ *    Hainaut, O. R. & Williams, A. P. (2020), A&A 636, A121, doi:10.1051/0004-6361/202037501, §5: for 1″ seeing
+ *    "the length of the trail in arcsec will give the attenuation factor in magnitude", 2.5·log(v); effective
+ *    magnitude = that of "a field star [with] the same peak brightness as the satellite in that exposure"
+ *    (Fig. 11 caption). Generalised here from 1″ seeing to the PSF FWHM, lengths in pixels.
  *
- * Source: Hainaut, O. R. & Williams, A. P. (2020), "On the impact of satellite constellations on astronomical
- * observations with ESO telescopes in the visible and infrared domains", A&A 636, A121,
- * doi:10.1051/0004-6361/202037501, §5: for 1″ seeing "the length of the trail in arcsec will give the attenuation
- * factor in magnitude", 2.5·log(v); effective magnitude defined so that "a field star with that magnitude will have
- * the same peak brightness as the satellite in that exposure" (Fig. 11 caption). Here the 1″ seeing is generalised to
- * the PSF FWHM and lengths are measured in pixels. It is a peak-brightness criterion; it ignores that a detector
- * (or a person) may integrate along a long trail, so it is conservative for long streaks.
+ * 2) MATCHED FILTER (Jones et al. 2018, SNR trailing loss):
+ *        m_lim,sat = m_lim,star − 1.25·log₁₀(1 + a·x² / (1 + b·x)),   a = 0.67, b = 1.16
+ *    Jones, R. L. et al. (2018), "The Large Synoptic Survey Telescope as a Near-Earth Object discovery machine",
+ *    Icarus, doi:10.1016/j.icarus.2017.11.033 (arXiv:1711.10621), Eqs. (4)–(5): Δm = −1.25 log₁₀(1 + a x²/(1 + b x)),
+ *    x = v·T_exp/(24·θ) with v in deg/day, T_exp in s, θ = FWHM in arcsec — i.e. x = trail length / FWHM.
+ *    "For trailing SNR losses, we find a = 0.67 and b = 1.16" — the irreversible S/N loss from the larger
+ *    background footprint, which applies when detection uses a filter matched to the trail. For long trails it grows
+ *    as ≈ 1.25·log₁₀(x). (Their *cumulative* loss for ordinary point-source detection software, a = 0.42, b = 0,
+ *    grows as ≈ 2.5·log₁₀(x), close to the PEAK model; it is not used here.)
+ *    Formula reading check: at their fiducial v = 1 deg/day, 30 s, 0.7″ (x = 1.79) it gives 0.29 mag, matching the
+ *    paper's "SNR loss is ∼0.3 mag".
  *
+ * 3) FIXED: predicted magnitude ≤ a fixed limit (the earlier simple criterion).
+ *
+ * A crossing is "detectable" under a model if ANY in-frame sample satisfies m ≤ m_lim,sat for that sample.
  * All limits are PLACEHOLDERS until calibrated from the project's own photos.
  */
 
-export type DetectionMode = 'trailing' | 'fixed';
+export type DetectionModel = 'peak' | 'matched' | 'fixed';
+
+export const MODEL_LABEL: Record<DetectionModel, string> = {
+  peak: 'Peak (Hainaut & Williams 2020)',
+  matched: 'Matched filter (Jones et al. 2018 SNR loss)',
+  fixed: 'Fixed limit',
+};
+
+/** Jones et al. (2018) Eq. (4) constants for trailing SNR loss. */
+export const JONES_A = 0.67;
+export const JONES_B = 1.16;
 
 export interface DetectionSettings {
-  mode: DetectionMode;
-  /** Limiting magnitude for a point source (star) in one frame of `exposureS` (placeholder). */
+  /** Limiting magnitude for a point source (star) in one frame of `exposureS` (placeholder until measured). */
   starLimit: number;
-  /** Old simple criterion: predicted magnitude ≤ fixedLimit (placeholder). */
+  /** Fixed limit for the simple criterion (placeholder). */
   fixedLimit: number;
   /** PSF full width at half maximum, pixels. */
   fwhmPx: number;
@@ -45,37 +64,70 @@ export function trailLengthPx(omegaDegS: number, exposureS: number, pxScaleDeg: 
   return (omegaDegS * exposureS) / pxScaleDeg;
 }
 
-/** 2.5·log₁₀(L / FWHM), or 0 when the trail is no longer than the PSF. */
-export function trailingLoss(trailPx: number, fwhmPx: number): number {
+/** PEAK loss: 2.5·log₁₀(L/FWHM), 0 when the trail is no longer than the PSF. */
+export function peakLoss(trailPx: number, fwhmPx: number): number {
   return trailPx > fwhmPx ? 2.5 * Math.log10(trailPx / fwhmPx) : 0;
+}
+/** Backward-compatible name. */
+export const trailingLoss = peakLoss;
+
+/** MATCHED-FILTER loss: Jones et al. (2018) Eq. (4) with the SNR-loss constants. */
+export function matchedLoss(trailPx: number, fwhmPx: number): number {
+  const x = trailPx / fwhmPx;
+  return 1.25 * Math.log10(1 + (JONES_A * x * x) / (1 + JONES_B * x));
+}
+
+export interface ModelResult {
+  /** Limit at the most favourable in-frame sample (the one with the largest margin limit − m). */
+  limit: number | null;
+  detectable: boolean | null;
 }
 
 export interface Detectability {
   /** Brightest predicted magnitude in the frame (null = unknown intrinsic magnitude). */
   mag: number | null;
-  /** Trail length in one exposure (px) at the most detectable sample. */
+  /** Trail length in one exposure at the brightest sample (px). */
   trailPx: number | null;
-  /** Limit that applies to this crossing: m_lim,sat (trailing mode) or the fixed limit. */
-  limit: number | null;
-  /** null when the brightness is unknown. */
-  detectable: boolean | null;
+  peak: ModelResult;
+  matched: ModelResult;
+  fixed: ModelResult;
 }
 
+/** Per in-frame sample: [geometric magnitude part (magRel), apparent angular speed ω in deg/s]. */
+export type Sample = [number, number];
+
 export function evaluateDetection(
-  x: { m1000: number | null; magRel: number; trailRel: number; omegaDegS: number },
+  x: { m1000: number | null; samples: Sample[] },
   assumedM1000: number | null,
   s: DetectionSettings,
 ): Detectability {
   const m1000 = x.m1000 ?? assumedM1000;
   const ps = pixelScaleDeg(s.sensorWidthMm, s.pixelsAcross, s.focalLengthMm);
-  const trailPx = Number.isFinite(x.omegaDegS) ? trailLengthPx(x.omegaDegS, s.exposureS, ps) : null;
-  if (m1000 === null || !Number.isFinite(x.magRel)) return { mag: null, trailPx, limit: null, detectable: null };
-  const mag = m1000 + x.magRel;
-  if (s.mode === 'fixed') return { mag, trailPx, limit: s.fixedLimit, detectable: mag <= s.fixedLimit };
-  if (trailPx === null || !Number.isFinite(x.trailRel)) return { mag, trailPx, limit: s.starLimit, detectable: mag <= s.starLimit };
-  const limit = s.starLimit - trailingLoss(trailPx, s.fwhmPx);
-  // Effective (peak-equivalent) magnitude at the most detectable sample:
-  // m + 2.5·log₁₀(L/FWHM) = m1000 + [magRel + 2.5·log₁₀ω] + 2.5·log₁₀(t / (pixel scale · FWHM)).
-  const eff = trailPx > s.fwhmPx ? m1000 + x.trailRel + 2.5 * Math.log10(s.exposureS / (ps * s.fwhmPx)) : mag;
-  return { mag, trailPx, limit, detectable: eff <= s.starLimit };
+  const valid = x.samples.filter(([rel, w]) => Number.isFinite(rel) && Number.isFinite(w));
+  let brightest: Sample | null = null;
+  for (const smp of valid) if (!brightest || smp[0] < brightest[0]) brightest = smp;
+  const trailPx = brightest ? trailLengthPx(brightest[1], s.exposureS, ps) : null;
+  const none: ModelResult = { limit: null, detectable: null };
+  if (m1000 === null || !brightest) return { mag: null, trailPx, peak: none, matched: none, fixed: none };
+  const mag = m1000 + brightest[0];
+  const best = (loss: (L: number) => number): ModelResult => {
+    let margin = -Infinity;
+    let limit = NaN;
+    for (const [rel, w] of valid) {
+      const lim = s.starLimit - loss(trailLengthPx(w, s.exposureS, ps));
+      const mg = lim - (m1000 + rel);
+      if (mg > margin) {
+        margin = mg;
+        limit = lim;
+      }
+    }
+    return { limit, detectable: margin >= 0 };
+  };
+  return {
+    mag,
+    trailPx,
+    peak: best((L) => peakLoss(L, s.fwhmPx)),
+    matched: best((L) => matchedLoss(L, s.fwhmPx)),
+    fixed: { limit: s.fixedLimit, detectable: mag <= s.fixedLimit },
+  };
 }

@@ -4,7 +4,7 @@ import { compass, moonPosition } from '../astro/moon';
 import { sunAltitude, sunAzAlt } from '../astro/sun';
 import { ommArrayToTleText } from '../sat/elements';
 import type { PhaseLaw } from '../sat/magnitude';
-import { evaluateDetection, pixelScaleDeg, type DetectionMode, type DetectionSettings } from '../sat/detection';
+import { evaluateDetection, MODEL_LABEL, pixelScaleDeg, type DetectionModel, type DetectionSettings, type Sample } from '../sat/detection';
 import { CAMERA as CAMERA_SETTINGS } from '../config';
 import { CELESTRAK_ACTIVE_URL, CELESTRAK_LABEL, downloadActive, nextAllowedAt } from '../sat/celestrak';
 import { SatWorker } from '../sat/client';
@@ -25,8 +25,8 @@ const CAMERA_KEY = 'satstreak.camera';
 const MAG_KEY = 'satstreak.magnitude';
 
 interface MagSettings {
-  /** 'trailing': star limit corrected for trailing loss per crossing; 'fixed': predicted mag ≤ fixed limit. */
-  mode: DetectionMode;
+  /** Which model's verdict is shown in bold in the crossing list (all models are always computed). */
+  mode: DetectionModel;
   /** Stellar (point-source) limiting magnitude of one 15-s frame. PLACEHOLDER until calibrated from photos. */
   starLimit: number;
   /** Fixed limit for the simple criterion. PLACEHOLDER. (Stored as `limit` for compatibility.) */
@@ -41,10 +41,14 @@ interface MagSettings {
 }
 
 function loadMag(): MagSettings {
-  const d: MagSettings = { mode: 'trailing', starLimit: 9, limit: 6, fwhmPx: 2, pixelsAcross: 6000, phaseLaw: 'fraction', assumed: null };
+  const d: MagSettings = { mode: 'matched', starLimit: 9, limit: 6, fwhmPx: 2, pixelsAcross: 6000, phaseLaw: 'fraction', assumed: null };
   try {
     const m = JSON.parse(localStorage.getItem(MAG_KEY) ?? 'null');
-    if (m && Number.isFinite(m.limit) && (m.phaseLaw === 'fraction' || m.phaseLaw === 'lambert')) return { ...d, ...m };
+    if (m && Number.isFinite(m.limit) && (m.phaseLaw === 'fraction' || m.phaseLaw === 'lambert')) {
+      const merged = { ...d, ...m };
+      if (!['peak', 'matched', 'fixed'].includes(merged.mode)) merged.mode = merged.mode === 'trailing' ? 'peak' : d.mode; // older setting
+      return merged;
+    }
   } catch {
     /* ignore */
   }
@@ -280,7 +284,7 @@ export class SatView {
     }
     if (t.id === 'limit-mag' || t.id === 'assumed-mag' || t.id === 'phase-law' || t.id === 'det-mode') {
       if (t.id === 'phase-law') this.mag.phaseLaw = t.value as PhaseLaw;
-      else if (t.id === 'det-mode') this.mag.mode = t.value as DetectionMode;
+      else if (t.id === 'det-mode') this.mag.mode = t.value as DetectionModel;
       else if (t.id === 'limit-mag' && Number.isFinite(Number(t.value)) && t.value !== '') this.mag.limit = Number(t.value);
       else if (t.id === 'assumed-mag') this.mag.assumed = t.value.trim() === '' || !Number.isFinite(Number(t.value)) ? null : Number(t.value);
       try {
@@ -334,7 +338,6 @@ export class SatView {
   private detSettings(): DetectionSettings {
     const g = this.mag;
     return {
-      mode: g.mode,
       starLimit: g.starLimit,
       fixedLimit: g.limit,
       fwhmPx: g.fwhmPx,
@@ -346,16 +349,17 @@ export class SatView {
   }
 
   /** Predicted magnitude, trail length, applicable limit and detectability of a crossing. */
-  private det(x: { m1000: number | null; magRel: number; trailRel: number; omegaDegS: number }) {
+  private det(x: { m1000: number | null; samples: Sample[] }) {
     return evaluateDetection(x, this.mag.assumed, this.detSettings());
   }
 
   private exportCrossings() {
     if (!this.result) return;
     const m = this.meta(this.result.setId);
-    const head = ['norad', 'name', 'regime', 'band', 'entry_utc', 'exit_utc', 'entry_kst', 'exit_kst', 'duration_s', 'entry_az', 'entry_alt', 'exit_az', 'exit_alt', 'max_alt', 'entry_clipped', 'exit_clipped', 'element_epoch_utc', 'mag_pred', 'm1000', 'm1000_assumed', 'mag_source', 'mag_geometric_part', 'starlink_version', 'angular_speed_deg_s', 'trail_px', 'detection_mode', 'limit_applied', 'detectable', 'merged_colocated_norad'];
-    const rows = this.result.r.crossings.map((c) =>
-      [
+    const head = ['norad', 'name', 'regime', 'band', 'entry_utc', 'exit_utc', 'entry_kst', 'exit_kst', 'duration_s', 'entry_az', 'entry_alt', 'exit_az', 'exit_alt', 'max_alt', 'entry_clipped', 'exit_clipped', 'element_epoch_utc', 'mag_pred', 'm1000', 'm1000_assumed', 'mag_source', 'mag_geometric_part', 'starlink_version', 'angular_speed_deg_s', 'trail_px', 'n_samples', 'limit_peak', 'detectable_peak', 'limit_matched', 'detectable_matched', 'limit_fixed', 'detectable_fixed', 'merged_colocated_norad'];
+    const rows = this.result.r.crossings.map((c) => {
+      const d = this.det(c);
+      return [
         c.norad,
         c.name,
         c.regime,
@@ -373,28 +377,35 @@ export class SatView {
         c.entryClipped,
         c.exitClipped,
         new Date(c.epoch).toISOString(),
-        this.det(c).mag?.toFixed(2) ?? '',
+        d.mag?.toFixed(2) ?? '',
         c.m1000 ?? this.mag.assumed ?? '',
         c.m1000 === null && this.mag.assumed !== null,
         c.magKey ?? '',
         c.magRel.toFixed(2),
         c.starlinkVersion ?? '',
-        Number.isFinite(c.omegaDegS) ? c.omegaDegS.toFixed(4) : '',
-        this.det(c).trailPx?.toFixed(0) ?? '',
-        this.mag.mode,
-        this.det(c).limit?.toFixed(2) ?? '',
-        this.det(c).detectable ?? '',
+        brightestOmega(c.samples)?.toFixed(4) ?? '',
+        d.trailPx?.toFixed(0) ?? '',
+        c.samples.length,
+        d.peak.limit?.toFixed(2) ?? '',
+        d.peak.detectable ?? '',
+        d.matched.limit?.toFixed(2) ?? '',
+        d.matched.detectable ?? '',
+        d.fixed.limit?.toFixed(2) ?? '',
+        d.fixed.detectable ?? '',
         c.merged.map((x) => x.norad).join(' '),
       ]
         .map(csvCell)
-        .join(','),
-    );
+        .join(',');
+    });
     const cam = this.camera;
     const meta = [
       `# Predicted camera-frame crossings, night ${this.ctx.date}, site ${this.ctx.site.latitude},${this.ctx.site.longitude},${this.ctx.site.elevation}m`,
       `# camera az ${cam.azimuth} alt ${cam.altitude} f ${cam.focalLength}mm sensor ${cam.sensorWidth}x${cam.sensorHeight}mm; step 10 s, entry/exit refined to 0.1 s`,
       `# magnitudes: m = m1000 + 5log10(d/1000km) - 2.5log10 F(phase), phase law '${this.mag.phaseLaw}', brightest 10-s sample in frame; m1000 sources in README; assumed m1000 for unknown objects: ${this.mag.assumed ?? 'none'}`,
-      `# detection (PLACEHOLDER limits): mode ${this.mag.mode}; star limit ${this.mag.starLimit} per ${CAMERA_SETTINGS.exposureS}-s frame; m_lim,sat = m_lim,star - 2.5log10(trail_px/FWHM) (Hainaut & Williams 2020, A&A 636, A121, Sec. 5), FWHM ${this.mag.fwhmPx} px, ${this.mag.pixelsAcross} px across ${this.camera.sensorWidth} mm; fixed limit ${this.mag.limit}`,
+      `# detection (PLACEHOLDER limits; all models on the same in-frame 10-s samples; detectable = any sample with m <= limit): star limit ${this.mag.starLimit} per ${CAMERA_SETTINGS.exposureS}-s frame, PSF FWHM ${this.mag.fwhmPx} px, ${this.mag.pixelsAcross} px across ${this.camera.sensorWidth} mm, x = trail_px/FWHM`,
+      `#   peak: m_lim = m_lim,star - 2.5log10(x) (Hainaut & Williams 2020, A&A 636, A121, Sec. 5)`,
+      `#   matched: m_lim = m_lim,star - 1.25log10(1 + 0.67x^2/(1 + 1.16x)) (Jones et al. 2018, Icarus, doi:10.1016/j.icarus.2017.11.033, Eqs. 4-5, SNR trailing loss)`,
+      `#   fixed: m <= ${this.mag.limit}; limit_* = limit at the most favourable sample; trail_px and angular_speed at the brightest sample`,
       `# elements: ${m?.label ?? ''} downloaded ${m ? new Date(m.downloadedAt).toISOString() : ''} (set id ${this.result.setId})`,
     ];
     download(`predictions_${this.ctx.date}_az${cam.azimuth}_alt${cam.altitude}.csv`, [...meta, head.join(','), ...rows].join('\n') + '\n', 'text/csv');
@@ -541,14 +552,16 @@ export class SatView {
     const stat = (k: 'twilight' | 'dark') => {
       const inBand = crossings.filter((c) => c.band === k);
       const n = inBand.length;
-      const dets = inBand.map((c) => this.det(c).detectable);
-      const bright = dets.filter((x) => x === true).length;
-      const unknown = dets.filter((x) => x === null).length;
+      const dets = inBand.map((c) => this.det(c));
+      const cnt = (mdl: DetectionModel) => dets.filter((x) => x[mdl].detectable === true).length;
+      const unknown = dets.filter((x) => x.mag === null).length;
       const m = bandMin(k);
       const perH = (x: number) => (m ? ((x / m) * 60).toFixed(1) : '—');
+      const line = (mdl: DetectionModel, label: string) => `<div class="det-line"><b class="tnum">${cnt(mdl)}</b> <span class="s">${label} · ${perH(cnt(mdl))}/h</span></div>`;
       return `<div class="stat band-${k}"><div class="k">${BAND_LABEL[k]} band · ${m.toFixed(0)} min</div>
         <div class="v tnum">${n}</div><div class="s tnum">all geometric · ${perH(n)}/h</div>
-        <div class="v2 tnum">${bright}</div><div class="s tnum">${this.mag.mode === 'trailing' ? 'predicted detectable after trailing loss' : `brighter than fixed mag ${this.mag.limit}`} · ${perH(bright)}/h</div>
+        <div class="s" style="margin-top:6px">predicted detectable:</div>
+        ${line('peak', 'Peak')}${line('matched', 'Matched filter')}${line('fixed', `fixed ≤ ${this.mag.limit}`)}
         <div class="s tnum">${unknown} with unknown brightness</div></div>`;
     };
     const fov = fovOutline(makeFov(this.camera));
@@ -585,8 +598,9 @@ export class SatView {
     const d = this.det(c);
     const trail = d.trailPx !== null ? `${d.trailPx.toFixed(0)} px` : '';
     if (d.mag === null) return `<span class="sec">—</span><div class="sec">${trail}</div>`;
-    const cls = d.detectable ? 'bright' : 'sec';
-    return `<span class="${cls}">${d.mag.toFixed(1)}${c.m1000 === null ? 'a' : ''}</span><div class="sec">lim ${d.limit?.toFixed(1)}${this.mag.mode === 'trailing' ? ` · ${trail}` : ''}</div>`;
+    const cls = d[this.mag.mode].detectable ? 'bright' : 'sec';
+    const v = (r: { limit: number | null; detectable: boolean | null }) => `${r.limit?.toFixed(1)}${r.detectable ? '✓' : '✗'}`;
+    return `<span class="${cls}">${d.mag.toFixed(1)}${c.m1000 === null ? 'a' : ''}</span><div class="sec">P ${v(d.peak)} · M ${v(d.matched)}</div><div class="sec">${trail}</div>`;
   }
 
   /** Does the ISS cross the chosen frame tonight? */
@@ -601,7 +615,7 @@ export class SatView {
       const rows = xs
         .map((c) => {
           const d = this.det(c);
-          return `<li><b>Enters ${fmtHMS(new Date(c.entry))}, exits ${fmtHMS(new Date(c.exit))} KST</b> (${((c.exit - c.entry) / 1000).toFixed(0)} s, frames ≈ ${Math.ceil((c.exit - c.entry) / 16000)}), max alt ${c.maxAlt.toFixed(0)}°, predicted mag ${d.mag === null ? '—' : d.mag.toFixed(1)}${d.trailPx !== null ? `, trail ≈ ${d.trailPx.toFixed(0)} px per frame` : ''}${d.limit !== null ? `, limit ${d.limit.toFixed(1)} → ${d.detectable ? 'detectable' : 'not detectable'}` : ''}, ${BAND_LABEL[c.band].toLowerCase()} band</li>`;
+          return `<li><b>Enters ${fmtHMS(new Date(c.entry))}, exits ${fmtHMS(new Date(c.exit))} KST</b> (${((c.exit - c.entry) / 1000).toFixed(0)} s, frames ≈ ${Math.ceil((c.exit - c.entry) / 16000)}), max alt ${c.maxAlt.toFixed(0)}°, predicted mag ${d.mag === null ? '—' : d.mag.toFixed(1)}${d.trailPx !== null ? `, trail ≈ ${d.trailPx.toFixed(0)} px per frame` : ''}${d.peak.limit !== null ? `; Peak limit ${d.peak.limit.toFixed(1)} → ${d.peak.detectable ? 'detectable' : 'not detectable'}; Matched-filter limit ${d.matched.limit!.toFixed(1)} → ${d.matched.detectable ? 'detectable' : 'not detectable'}` : ''}, ${BAND_LABEL[c.band].toLowerCase()} band</li>`;
         })
         .join('');
       return `<div class="iss-box yes"><b>ISS crosses this frame tonight</b><ul>${rows}</ul><p class="sec">Pass: ${passTxt || '—'}</p></div>`;
@@ -615,23 +629,19 @@ export class SatView {
     const ps = pixelScaleDeg(this.camera.sensorWidth, g.pixelsAcross, this.camera.focalLength);
     return `<details class="criteria mag-settings" open><summary>Brightness and detection model</summary>
       <div class="cam-grid">
-        <label class="full">Detection criterion<select id="det-mode"><option value="trailing"${g.mode === 'trailing' ? ' selected' : ''}>Star limit with trailing loss</option><option value="fixed"${g.mode === 'fixed' ? ' selected' : ''}>Fixed magnitude limit</option></select></label>
-        ${
-          g.mode === 'trailing'
-            ? `<label>Star limit, ${CAMERA_SETTINGS.exposureS}-s frame<input data-det="starLimit" type="number" step="0.5" inputmode="decimal" value="${g.starLimit}"></label>
+        <label>Star limit, ${CAMERA_SETTINGS.exposureS}-s frame <span class="sec">(placeholder)</span><input data-det="starLimit" type="number" step="0.5" inputmode="decimal" value="${g.starLimit}"></label>
         <label>PSF FWHM (px)<input data-det="fwhmPx" type="number" step="0.5" min="0.5" inputmode="decimal" value="${g.fwhmPx}"></label>
         <label>Pixels across sensor<input data-det="pixelsAcross" type="number" step="1" inputmode="numeric" value="${g.pixelsAcross}"></label>
-        <div class="fov-out"><span class="sec">Pixel scale</span><b class="tnum">${(ps * 3600).toFixed(1)}″/px</b></div>`
-            : `<label>Fixed limiting magnitude<input id="limit-mag" type="number" step="0.5" inputmode="decimal" value="${g.limit}"></label>`
-        }
+        <div class="fov-out"><span class="sec">Pixel scale</span><b class="tnum">${(ps * 3600).toFixed(1)}″/px</b></div>
+        <label>Fixed limit <span class="sec">(placeholder)</span><input id="limit-mag" type="number" step="0.5" inputmode="decimal" value="${g.limit}"></label>
+        <label>Bold in list<select id="det-mode">${(['peak', 'matched', 'fixed'] as DetectionModel[]).map((mdl) => `<option value="${mdl}"${g.mode === mdl ? ' selected' : ''}>${MODEL_LABEL[mdl]}</option>`).join('')}</select></label>
         <label>Phase law<select id="phase-law"><option value="fraction"${g.phaseLaw === 'fraction' ? ' selected' : ''}>Fraction illuminated</option><option value="lambert"${g.phaseLaw === 'lambert' ? ' selected' : ''}>Diffuse (Lambert) sphere</option></select></label>
         <label class="full">Assumed 1000-km mag for objects with no published value <input id="assumed-mag" type="number" step="0.5" inputmode="decimal" placeholder="leave blank = unknown" value="${g.assumed ?? ''}"></label>
       </div>
-      <p class="note">m = m₁₀₀₀ + 5·log₁₀(range/1000 km) − 2.5·log₁₀F(phase angle), F = 1 at 90°. m₁₀₀₀ from Mallama &amp; Cole’s compiled table (Starlink by version, OneWeb, Amazon Leo, Qianfan) and Heavens-Above (ISS); see README for every source and flag. ${
-        g.mode === 'trailing'
-          ? `Trailing loss: m<sub>lim,sat</sub> = m<sub>lim,star</sub> − 2.5·log₁₀(trail length / FWHM), trail length = angular speed × ${CAMERA_SETTINGS.exposureS} s ÷ pixel scale (Hainaut &amp; Williams 2020, A&amp;A 636, A121, §5). A LEO streak of ~500 px with FWHM 2 px loses ~6 mag.`
-          : ''
-      } All limits (star limit ${g.starLimit}, fixed limit ${g.limit}) are <b>placeholders</b> until you calibrate them from your photos. Changing the phase law needs a recompute.</p>
+      <p class="note">m = m₁₀₀₀ + 5·log₁₀(range/1000 km) − 2.5·log₁₀F(phase angle), F = 1 at 90°. m₁₀₀₀ from Mallama &amp; Cole’s compiled table (Starlink by version, OneWeb, Amazon Leo, Qianfan) and Heavens-Above (ISS); see README for every source and flag. Two trailing-loss models on the same samples, with x = trail length ÷ FWHM (trail length = angular speed × ${CAMERA_SETTINGS.exposureS} s ÷ pixel scale):
+      <b>Peak</b> m<sub>lim,sat</sub> = m<sub>lim,star</sub> − 2.5·log₁₀x (Hainaut &amp; Williams 2020, A&amp;A 636, A121, §5);
+      <b>Matched filter</b> m<sub>lim,sat</sub> = m<sub>lim,star</sub> − 1.25·log₁₀(1 + 0.67x²/(1 + 1.16x)) (Jones et al. 2018, Icarus, Eqs. 4–5, SNR trailing loss).
+      For a 500-px streak at FWHM 2 px they give losses of 6.0 and 2.7 mag. In the list: P = Peak limit, M = Matched-filter limit, ✓ = detectable. All limits (star limit ${g.starLimit}, fixed limit ${g.limit}) are <b>placeholders</b> until you calibrate them from your photos. Changing the phase law needs a recompute.</p>
     </details>`;
   }
 
@@ -641,8 +651,8 @@ export class SatView {
       const runs = pc.runs.filter((x) => !this.leoOnly || x.leo);
       const c = (b: BandKey) => {
         const rb = runs.filter((x) => x.band === b);
-        const bright = rb.filter((x) => this.det(x).detectable === true).length;
-        return { all: rb.length, bright };
+        const ds = rb.map((x) => this.det(x));
+        return { all: rb.length, peak: ds.filter((d) => d.peak.detectable === true).length, matched: ds.filter((d) => d.matched.detectable === true).length };
       };
       const iss = pc.runs.filter((x) => x.norad === ISS);
       return { pc, tw: c('twilight'), dk: c('dark'), iss };
@@ -659,7 +669,8 @@ export class SatView {
     }
     const moonSep = (az: number, alt: number) => (moonUp.length ? Math.min(...moonUp.map((m) => angularSeparation(az, alt, m.az, m.alt))) : null);
     const best = Math.max(...stats.map((x) => x.tw.all + x.dk.all));
-    const bestBright = Math.max(...stats.map((x) => x.tw.bright + x.dk.bright));
+    const bestPeak = Math.max(...stats.map((x) => x.tw.peak + x.dk.peak));
+    const bestMatched = Math.max(...stats.map((x) => x.tw.matched + x.dk.matched));
     const rows = stats
       .sort((a, b) => a.pc.azimuth - b.pc.azimuth || a.pc.altitude - b.pc.altitude)
       .map(({ pc, tw, dk, iss }) => {
@@ -669,12 +680,13 @@ export class SatView {
           <td class="r tnum">${sun ? `${azimuthDifference(pc.azimuth, sun.azimuth).toFixed(0)}°` : '—'}</td>
           <td class="r tnum">${ms === null ? '<span class="sec">down</span>' : `${ms.toFixed(0)}°`}</td>
           <td class="r tnum${tw.all + dk.all === best ? ' best' : ''}">${tw.all} / ${dk.all}</td>
-          <td class="r tnum${tw.bright + dk.bright === bestBright ? ' best' : ''}">${tw.bright} / ${dk.bright}</td>
+          <td class="r tnum${tw.peak + dk.peak === bestPeak && bestPeak > 0 ? ' best' : ''}">${tw.peak} / ${dk.peak}</td>
+          <td class="r tnum${tw.matched + dk.matched === bestMatched && bestMatched > 0 ? ' best' : ''}">${tw.matched} / ${dk.matched}</td>
           <td class="r tnum">${iss.length ? iss.map((x) => `${fmtHMS(new Date(x.start))}–${fmtHMS(new Date(x.end))}`).join('<br>') : '<span class="sec">—</span>'}</td></tr>`;
       })
       .join('');
     return `<h3>Pointing comparison</h3>
-      <div class="scroll-x"><table class="pointing"><thead><tr><th>Az / alt</th><th class="r">Sun Δaz</th><th class="r">Moon</th><th class="r">All<div class="sec">twilight / dark</div></th><th class="r">${this.mag.mode === 'trailing' ? 'Detectable' : `≤ mag ${this.mag.limit}`}<div class="sec">twilight / dark</div></th><th class="r">ISS in frame<div class="sec">KST, 10-s</div></th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="scroll-x"><table class="pointing"><thead><tr><th>Az / alt</th><th class="r">Sun Δaz</th><th class="r">Moon</th><th class="r">All<div class="sec">twilight / dark</div></th><th class="r">Peak<div class="sec">twilight / dark</div></th><th class="r">Matched<div class="sec">twilight / dark</div></th><th class="r">ISS in frame<div class="sec">KST, 10-s</div></th></tr></thead><tbody>${rows}</tbody></table></div>
       <p class="note">${this.leoOnly ? 'LEO crossings' : 'Crossings (all regimes)'} per band for the same lens pointed elsewhere (10-s resolution). Bold = highest; shaded = your current pointing if it is on this grid.
         <b>Sun Δaz</b> = azimuth difference from the Sun at the start of the twilight band (${sun && t12 ? `Sun at ${sun.azimuth.toFixed(0)}° ${compass(sun.azimuth)}, ${fmtHM(t12)} KST` : 'n/a'}); small values look towards the residual twilight glow.
         <b>Moon</b> = smallest angular distance from the frame centre to the Moon while it is up during the window (“down” = below the horizon all window).
@@ -712,3 +724,9 @@ export class SatView {
   }
 }
 
+/** Apparent angular speed (deg/s) at the brightest in-frame sample. */
+function brightestOmega(samples: Sample[]): number | null {
+  let best: Sample | null = null;
+  for (const x of samples) if (Number.isFinite(x[0]) && (!best || x[0] < best[0])) best = x;
+  return best && Number.isFinite(best[1]) ? best[1] : null;
+}

@@ -159,12 +159,10 @@ export interface Crossing {
    */
   magRel: number;
   /**
-   * Trailing-loss term for the most detectable in-frame sample: min over samples of magRel + 2.5·log₁₀(ω),
-   * ω = apparent angular speed in deg/s. Effective magnitude = m1000 + trailRel + 2.5·log₁₀(t_exp / (pixel scale · FWHM)).
+   * Every in-frame 10-s sample as [magRel, ω]: geometric magnitude part and apparent angular speed (deg/s).
+   * All detection models are evaluated on these same samples (see detection.ts).
    */
-  trailRel: number;
-  /** Apparent angular speed (deg/s) at that sample. */
-  omegaDegS: number;
+  samples: [number, number][];
   /** Published intrinsic magnitude, or null (unknown). */
   m1000: number | null;
   /** Key of the intrinsic-magnitude source (see magnitude.ts), or null. */
@@ -189,8 +187,8 @@ export interface PointingRun {
   leo: boolean;
   /** Geometric magnitude part at the brightest in-frame sample (see Crossing.magRel). */
   magRel: number;
-  trailRel: number;
-  omegaDegS: number;
+  /** In-frame samples [magRel, ω deg/s] (see Crossing.samples). */
+  samples: [number, number][];
   m1000: number | null;
   norad: number;
   /** First / last in-frame sample (ms UTC). */
@@ -253,8 +251,7 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
   const runStart = new Int32Array(F);
   const runMax = new Float64Array(F);
   const runMag = new Float64Array(F);
-  const runTrail = new Float64Array(F);
-  const runOmega = new Float64Array(F);
+  const runSamples: [number, number][][] = Array.from({ length: F }, () => []);
   const ins = new Uint8Array(F);
 
   for (let i = 0; i < sats.length; i++) {
@@ -263,7 +260,7 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
     if (skip.has(i)) continue;
     const m1000 = sat.intrinsic?.m1000 ?? null;
     runStart.fill(-1);
-    const mainRuns: [number, number, number, number, number, number][] = []; // [k0, k1, maxAlt, minMagRel, minTrailRel, omega]
+    const mainRuns: [number, number, number, number, [number, number][]][] = []; // [k0, k1, maxAlt, minMagRel, samples]
     const track: [number, number, number][] = []; // [k, azDeg, altDeg]
     let failed = false;
 
@@ -288,45 +285,35 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
         ins[f] = vis && inFov(fovs[f], lk!.az, lk!.alt) ? 1 : 0;
         if (ins[f]) insideAny = true;
       }
-      let trel = Infinity;
       let omega = NaN;
       if (insideAny) {
         const l2 = lookAt(sat.satrec, ctxs1[k], gd, false);
-        if (l2) {
-          omega = haversineDeg(lk!.az, lk!.alt, l2.az, l2.alt); // deg per 1 s
-          trel = rel + 2.5 * Math.log10(Math.max(omega, 1e-9));
-        }
+        if (l2) omega = haversineDeg(lk!.az, lk!.alt, l2.az, l2.alt); // deg per 1 s
       }
+      const sample: [number, number] = [+rel.toFixed(3), +omega.toFixed(5)];
       for (let f = 0; f < F; f++) {
         if (ins[f]) {
           if (runStart[f] < 0) {
             runStart[f] = k;
             runMax[f] = lk!.alt;
             runMag[f] = rel;
-            runTrail[f] = trel;
-            runOmega[f] = omega;
+            runSamples[f] = [sample];
           } else {
             if (lk!.alt > runMax[f]) runMax[f] = lk!.alt;
             if (rel < runMag[f]) runMag[f] = rel;
-            if (trel < runTrail[f]) {
-              runTrail[f] = trel;
-              runOmega[f] = omega;
-            }
+            runSamples[f].push(sample);
           }
         } else if (runStart[f] >= 0) {
           const k0 = runStart[f];
           const k1 = k - 1;
           const relVal = +runMag[f].toFixed(2);
-          const trailVal = +runTrail[f].toFixed(3);
-          const omegaVal = +runOmega[f].toFixed(4);
-          if (f === 0) mainRuns.push([k0, k1, runMax[f], relVal, trailVal, omegaVal]);
+          if (f === 0) mainRuns.push([k0, k1, runMax[f], relVal, runSamples[f]]);
           else
             pointing[f - 1].runs.push({
               band: bandOf(sunAlts[Math.round((k0 + k1) / 2)]),
               leo: sat.regime === 'LEO',
               magRel: relVal,
-              trailRel: trailVal,
-              omegaDegS: omegaVal,
+              samples: runSamples[f],
               m1000,
               norad: sat.norad,
               start: times[k0],
@@ -354,7 +341,7 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
       return [lk.az * R2D, lk.alt * R2D];
     };
     let firstBand: BandKey | null = null;
-    for (const [k0, k1, maxAlt, magRel, trailRel, omegaDegS] of mainRuns) {
+    for (const [k0, k1, maxAlt, magRel, samples] of mainRuns) {
       const entryClipped = k0 === 0;
       const exitClipped = k1 === K - 1;
       const entry = entryClipped ? times[0] : bisect(times[k0 - 1], times[k0], cond);
@@ -379,8 +366,7 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
         exitAlt,
         band,
         magRel,
-        trailRel,
-        omegaDegS,
+        samples,
         m1000,
         magKey: sat.intrinsic?.key ?? null,
         starlinkVersion: sat.starlinkVersion,

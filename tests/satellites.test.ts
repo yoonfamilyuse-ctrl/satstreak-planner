@@ -325,31 +325,55 @@ describe('Starlink versions from GCAT (per satellite)', () => {
   });
 });
 
-describe('trailing loss (Hainaut & Williams 2020)', () => {
-  it('limit falls by 2.5 log10(L / FWHM)', async () => {
-    const { trailingLoss, pixelScaleDeg, trailLengthPx, evaluateDetection } = await import('../src/sat/detection');
-    expect(trailingLoss(2, 2)).toBe(0);
-    expect(trailingLoss(1, 2)).toBe(0);
-    expect(trailingLoss(20, 2)).toBeCloseTo(2.5, 12);
-    expect(trailingLoss(200, 2)).toBeCloseTo(5, 12);
+describe('trailing-loss models (Peak: Hainaut & Williams 2020; Matched filter: Jones et al. 2018)', () => {
+  it('Peak loss = 2.5 log10(L/FWHM)', async () => {
+    const { peakLoss, pixelScaleDeg, trailLengthPx } = await import('../src/sat/detection');
+    expect(peakLoss(2, 2)).toBe(0);
+    expect(peakLoss(1, 2)).toBe(0);
+    expect(peakLoss(20, 2)).toBeCloseTo(2.5, 12);
+    expect(peakLoss(200, 2)).toBeCloseTo(5, 12);
     const ps = pixelScaleDeg(35.9, 6000, 28);
     expect(ps).toBeCloseTo(0.01224, 5);
-    // 0.384 deg/s for 15 s ~ 470 px (the typical LEO streak in the README).
     expect(trailLengthPx(0.384, 15, ps)).toBeCloseTo(470, -1);
-    const s = { mode: 'trailing' as const, starLimit: 9, fixedLimit: 6, fwhmPx: 2, pixelsAcross: 6000, sensorWidthMm: 35.9, focalLengthMm: 28, exposureS: 15 };
-    // One sample: trailRel = magRel + 2.5 log10(omega). m = 3 + 0 = 3; L = 470 px -> limit = 9 - 2.5 log10(235) = 3.07.
-    const x = { m1000: 3, magRel: 0, trailRel: 2.5 * Math.log10(0.384), omegaDegS: 0.384 };
-    const d = evaluateDetection(x, null, s);
-    expect(d.trailPx).toBeCloseTo(470, -1);
-    expect(d.limit).toBeCloseTo(9 - 2.5 * Math.log10(d.trailPx! / 2), 9);
-    expect(d.detectable).toBe(true); // 3.0 <= 3.07
-    expect(evaluateDetection({ ...x, m1000: 3.2 }, null, s).detectable).toBe(false);
-    expect(evaluateDetection({ ...x, m1000: 5.9 }, null, { ...s, mode: 'fixed' }).detectable).toBe(true);
-    expect(evaluateDetection({ ...x, m1000: null }, null, s).detectable).toBeNull();
-    expect(evaluateDetection({ ...x, m1000: null }, 3, s).mag).toBe(3);
   });
 
-  it('ISS on 2026-11-11 at S/60°: apparent angular speed about 1°/s', () => {
+  it('Matched-filter loss reproduces Jones et al. (2018) Eq. 4 and their quoted fiducial value', async () => {
+    const { matchedLoss } = await import('../src/sat/detection');
+    // Their fiducial case: v = 1 deg/day, T = 30 s, theta = 0.7" -> x = vT/(24 theta) = 1.786; "SNR loss is ~0.3 mag".
+    const x = (1 * 30) / (24 * 0.7);
+    expect(matchedLoss(x, 1)).toBeCloseTo(0.287, 2);
+    expect(matchedLoss(x, 1)).toBeGreaterThan(0.25);
+    expect(matchedLoss(x, 1)).toBeLessThan(0.35);
+    // x = L/FWHM: the same trail in px with FWHM 2 px gives the same loss.
+    expect(matchedLoss(2 * x, 2)).toBeCloseTo(matchedLoss(x, 1), 12);
+    // Long trails: slope 1.25 per decade, i.e. ~half the Peak model's 2.5.
+    expect(matchedLoss(2000, 2) - matchedLoss(200, 2)).toBeCloseTo(1.25, 1);
+    expect(matchedLoss(0, 2)).toBe(0);
+  });
+
+  it('both models use the same samples; detectable if ANY sample passes', async () => {
+    const { evaluateDetection, peakLoss, matchedLoss, pixelScaleDeg, trailLengthPx } = await import('../src/sat/detection');
+    const s = { starLimit: 9, fixedLimit: 6, fwhmPx: 2, pixelsAcross: 6000, sensorWidthMm: 35.9, focalLengthMm: 28, exposureS: 15 };
+    const ps = pixelScaleDeg(35.9, 6000, 28);
+    // Two samples: bright but fast, fainter but slow.
+    const samples: [number, number][] = [
+      [0, 0.8],
+      [0.5, 0.2],
+    ];
+    const d = evaluateDetection({ m1000: 4, samples }, null, s);
+    expect(d.mag).toBe(4);
+    expect(d.trailPx).toBeCloseTo(trailLengthPx(0.8, 15, ps), 9);
+    const margin = (loss: (L: number, f: number) => number) =>
+      Math.max(...samples.map(([rel, w]) => 9 - loss(trailLengthPx(w, 15, ps), 2) - (4 + rel)));
+    expect(d.peak.detectable).toBe(margin(peakLoss) >= 0);
+    expect(d.matched.detectable).toBe(margin(matchedLoss) >= 0);
+    expect(d.matched.limit!).toBeGreaterThan(d.peak.limit!);
+    expect(d.fixed).toEqual({ limit: 6, detectable: true });
+    expect(evaluateDetection({ m1000: null, samples }, null, s).peak.detectable).toBeNull();
+    expect(evaluateDetection({ m1000: null, samples }, 4, s).mag).toBe(4);
+  });
+
+  it('ISS on 2026-11-11 at S/60°: apparent angular speed about 1°/s, samples stored for every in-frame step', () => {
     const sats = parseElementText(FIXTURE).sats;
     const r = predictCrossings(sats, {
       start: Date.UTC(2026, 10, 11, 9, 40),
@@ -360,7 +384,10 @@ describe('trailing loss (Hainaut & Williams 2020)', () => {
       pointing: [],
     });
     const iss = r.crossings.find((c) => c.norad === 25544)!;
-    expect(iss.omegaDegS).toBeGreaterThan(0.6);
-    expect(iss.omegaDegS).toBeLessThan(1.3);
+    expect(iss.samples.length).toBeGreaterThanOrEqual(9);
+    const omega = Math.max(...iss.samples.map((x) => x[1]));
+    expect(omega).toBeGreaterThan(0.6);
+    expect(omega).toBeLessThan(1.3);
+    expect(Math.min(...iss.samples.map((x) => x[0]))).toBeCloseTo(iss.magRel, 2);
   });
 });

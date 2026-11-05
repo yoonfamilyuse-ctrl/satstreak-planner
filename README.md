@@ -147,25 +147,40 @@ Heavens-Above is itself a model, not a measurement, so this checks consistency, 
 
 **Limitations (read before using the counts in the paper).** The Mallama & Cole values are range-adjusted means over all the phase angles at which the satellites were observed; they are not phase-normalised standard magnitudes, so applying a phase law to them is an approximation. Starlink satellites also scatter light forward far more than any sphere (Mallama 2021), and their brightness changes with attitude and over months to years. Treat predicted magnitudes as roughly ±1 mag. All limits below are **placeholders** until you measure your real detection limit from your photos.
 
-### Detection limit with trailing loss
-A star's light stays on one PSF-sized spot for the whole 15-s exposure. A LEO satellite moving ~0.4° s⁻¹ spreads its light along a ~470-px streak, so each PSF-sized patch of the streak gets light for only a tiny fraction of the exposure. Following Hainaut & Williams (2020), *On the impact of satellite constellations on astronomical observations with ESO telescopes in the visible and infrared domains*, **A&A 636, A121**, doi:10.1051/0004-6361/202037501, §5, the satellite's limiting magnitude is
+### Detection limit with trailing loss (two models, side by side)
+A star's light stays on one PSF-sized spot for the whole 15-s exposure. A LEO satellite moving ~0.4° s⁻¹ spreads its light along a ~470-px streak. Both models below use the **same inputs**: for every in-frame 10-s sample, the predicted magnitude m and the apparent angular speed ω, computed from the topocentric direction at t and t + 1 s (haversine). From these,
 
 ```
-m_lim,sat = m_lim,star − 2.5·log₁₀(L / FWHM)        (no loss if L ≤ FWHM)
-L = ω · t_exp / pixel scale        pixel scale = atan(pixel pitch / f)
+x = L / FWHM,     L = ω · t_exp / pixel scale   [px],     pixel scale = atan(pixel pitch / f)
 ```
 
-- **Source wording:** the paper states the 1″-seeing case: "the length of the trail in arcsec will give the attenuation factor in magnitude", 2.5·log v. It defines the effective magnitude as that of "a field star [with] the same peak brightness as the satellite in that exposure" (Fig. 11 caption). We generalise 1″ to the PSF FWHM and measure lengths in pixels.
-- **Conservative:** this is a peak-brightness criterion. Software or an eye that integrates along a long trail can do better.
-- **ω (apparent angular speed):** computed for every in-frame 10-s sample from the topocentric direction at t and t + 1 s (haversine). A crossing counts as detectable if *any* in-frame sample satisfies m ≤ m_lim,sat.
-- **Inputs (settings):**
-  - stellar limiting magnitude of one 15-s frame: **placeholder 9.0**
+| Model (setting label) | Limit for the satellite | Source |
+|---|---|---|
+| **Peak** | m_lim,sat = m_lim,star − 2.5·log₁₀ x (no loss for x ≤ 1) | Hainaut & Williams (2020), A&A 636, A121, doi:10.1051/0004-6361/202037501, §5. For 1″ seeing "the length of the trail in arcsec will give the attenuation factor in magnitude", 2.5·log v. Effective magnitude = that of a star with the same **peak** brightness (Fig. 11 caption). Generalised here from 1″ to the PSF FWHM. |
+| **Matched filter** | m_lim,sat = m_lim,star − 1.25·log₁₀(1 + 0.67·x² / (1 + 1.16·x)) | Jones, R. L. et al. (2018), *The Large Synoptic Survey Telescope as a Near-Earth Object discovery machine*, Icarus, doi:10.1016/j.icarus.2017.11.033 (arXiv:1711.10621), **Eqs. (4)–(5)**: Δm = −1.25·log₁₀(1 + a·x²/(1 + b·x)), x = v·T_exp/(24·θ) (v in deg/day, T_exp in s, θ = FWHM in arcsec, i.e. x = trail length/FWHM). "For trailing SNR losses, we find a = 0.67 and b = 1.16." |
+| **Fixed** | predicted m ≤ fixed limit | the earlier simple criterion |
+
+- **Detectable:** a crossing counts as detectable under a model if *any* in-frame sample satisfies m ≤ m_lim,sat. The app shows the band counts for **all three** models next to the geometric count. The crossing list shows both limits (P = Peak, M = Matched filter) with ✓/✗; one model's verdict is bold (setting). The pointing table has Peak and Matched columns.
+- **CSV:** `limit_peak`, `detectable_peak`, `limit_matched`, `detectable_matched`, `limit_fixed`, `detectable_fixed`. `limit_*` is the limit at the most favourable sample.
+- **What the two models mean.** *Peak* asks whether the trail's brightest pixel stands out like a star of the limiting magnitude, which is what you see by eye or with point-source software. *Matched filter* is Jones et al.'s **S/N loss**: the loss that remains even when detection uses a filter matched to the trail (e.g. a streak finder that adds up light along the line). For long trails it grows as ≈ 1.25·log₁₀ x, half the Peak slope. For a 500-px streak at FWHM 2 px the losses are 6.0 mag (Peak) and 2.7 mag (Matched filter). Your actual detections should lie between the two, depending on how you search the frames. Comparing them is part of the study.
+- **Naming note.** Jones et al. also give a *cumulative* "detection loss" for ordinary point-source detection software (a = 0.42, b = 0). It grows as ≈ 2.5·log₁₀ x for long trails, i.e. like the Peak model, so it is **not** the 1.25·log₁₀ model. We use their SNR-loss constants for the matched-filter case.
+- **Formula check:** at Jones et al.'s fiducial case (v = 1 deg/day, 30 s, 0.7″, so x = 1.79), our implementation gives 0.29 mag. The paper says "the SNR loss is ∼0.3 mag" (Fig. 6 caption); this is tested.
+- Tyson et al. (2020, AJ 160, 226) discuss satellite-trail brightness for LSST, but the trailing-loss formula is in Jones et al. (2018), which we cite.
+- **Inputs (settings, PLACEHOLDERS until measured):**
+  - stellar limiting magnitude of one 15-s frame: **9.0**
   - PSF FWHM: **2 px**
-  - pixels across the sensor: **6000**, from Sony's a7 III specification of 6000 × 4000 effective pixels, giving 44.1″/px at 28 mm
-- **Fixed limit:** the old simple criterion (predicted mag ≤ fixed limit, **placeholder 6.0**) remains available as an option.
-- **Scale of the effect:** at FWHM 2 px, a 470-px streak loses 2.5·log₁₀(235) ≈ 5.9 mag, so with a star limit of 9 a typical Starlink must be brighter than ≈ 3.1 to be "detectable".
+  - pixels across the sensor: 6000, from Sony's a7 III specification of 6000 × 4000 effective pixels, giving 44.1″/px at 28 mm
+  - fixed limit: **6.0**
 
-Each band shows **all geometric crossings** and **predicted detectable** (after trailing loss, or by the fixed limit if chosen), plus a count of crossings with unknown brightness.
+### Measuring the stellar limiting magnitude from our own frames (to replace the 9.0 placeholder)
+1. Choose a few frames from each band, e.g. at the start of the twilight band and in the middle of the dark band, from the actual run. The limit differs between bands because the sky background differs. That difference is exactly why it must be measured per band.
+2. **Plate-solve** each frame to get its sky coordinates, e.g. with astrometry.net (Lang et al. 2010, AJ 139, 1782), using its online service or local `solve-field`. A 28-mm frame (65° × 46°) solves easily.
+3. **Do photometry** on the stars with a small aperture: Siril, AstroImageJ, or Python with `photutils`. Use the raw green channel, or a debayered luminance, of the RAW file (not a JPEG).
+4. **Cross-match** the detected stars with a catalogue that has V or G magnitudes, e.g. Gaia DR3 (G band) or the Tycho-2 / APASS V band, using the plate solution.
+5. **Measure the limit:** plot S/N against catalogue magnitude, and take the magnitude where S/N = 5 (or where the detection fraction drops to 50 %) as m_lim,star for that frame. Also measure the median star FWHM in pixels, which replaces the 2-px placeholder.
+6. Enter the measured m_lim,star and FWHM in the app (*Brightness and detection model*). Record which frames, catalogue and S/N threshold were used.
+
+Then each crossing's detectability under both models follows from measured inputs. Comparing it with the streaks you actually found tests which model describes your detection method.
 
 **CSV columns added:**
 - `mag_pred`: brightest predicted magnitude in the frame, empty if unknown
@@ -173,7 +188,8 @@ Each band shows **all geometric crossings** and **predicted detectable** (after 
 - `mag_geometric_part`: 5·log₁₀(d/1000) − 2.5·log₁₀F, so you can recompute with a different m₁₀₀₀ later
 - `starlink_version` (GCAT)
 - `angular_speed_deg_s`, `trail_px`
-- `detection_mode`, `limit_applied`, `detectable`
+- `n_samples`
+- `limit_peak`, `detectable_peak`, `limit_matched`, `detectable_matched`, `limit_fixed`, `detectable_fixed`
 
 The header comment records every setting used.
 - **Sky chart:** all-sky azimuthal-equidistant plot (zenith at centre, North up, East left). Shows the frame outline, the Moon at window midpoint, and the sunlit above-horizon tracks of objects that cross the frame, coloured by band (dark band also dashed, so it reads in red night mode).
@@ -319,7 +335,7 @@ src/sat/celestrak.ts   CelesTrak download with the 2-hour policy
 src/ui/sat-view.ts     Satellites tab;  src/ui/skychart.ts  all-sky chart
 src/sat/magnitude.ts   brightness model and cited intrinsic magnitudes
 src/sat/starlink-versions.ts  Starlink version per satellite (GENERATED from GCAT 1.8.8; see scripts/)
-src/sat/detection.ts   trailing-loss detection limit
+src/sat/detection.ts   detection limits: Peak (Hainaut & Williams 2020) and Matched filter (Jones et al. 2018)
 scripts/gen-starlink-versions.py  generator for the GCAT-based version table
 src/log/fieldlog.ts    field-log model, clock offset, frame/band timing, CSV
 src/log/zip.ts         minimal ZIP writer for the export bundle
