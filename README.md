@@ -80,7 +80,17 @@ For today and the next 13 evenings: shooting window, number of shots, Moon illum
 | Band | Sun's altitude at the crossing midpoint (astronomy-engine): twilight −12…−20°, dark −25…−35°, gap −20…−25°, margin = the 5-min edges |
 | Orbit regime | Space-Track definitions: LEO n > 11.25 rev/d & e < 0.25; GEO 0.99–1.01 rev/d & e < 0.01; MEO 1.8–2.4 rev/d; HEO e ≥ 0.25 |
 
-- **Counts default to LEO only.** Geostationary and GPS-type objects barely move in a 15 s exposure, and many sit in the frame for the whole window. They are not streak-producing crossings, and counting them would distort the twilight-vs-dark comparison. A checkbox includes them, and the CSV always contains everything with a `regime` column.
+- **Counts default to LEO only** (period < 128 min, eccentricity < 0.25). A checkbox includes the other regimes, and the CSV always contains every object with a `regime` column.
+  - *Why 128 min:* by Kepler's third law, a = (μT²/4π²)^(1/3). With μ = 398 600.4418 km³ s⁻² and T = 128 min this gives a = 8 413 km, i.e. a circular-orbit altitude of **2 035 km** above the WGS-84 equatorial radius (6 378.137 km). This is the conventional upper boundary of low Earth orbit: the IADC Space Debris Mitigation Guidelines (IADC-02-01) define the "LEO protected region" as extending up to 2 000 km altitude. That definition is taken from UN COPUOS documents that summarise the guidelines; we did not access the primary IADC text. The 128-min / 11.25 rev/day threshold is also Space-Track.org's LEO definition, which is why it is used here.
+  - *Why the other regimes are excluded:* on a fixed tripod, stars trail at 15″ s⁻¹ × cos δ, about 0.06° = **5 px** in 15 s on the a7 III at 28 mm (pixel scale 0.0122° px⁻¹ = 35.9 mm / 6000 px at f = 28 mm). Measured with the 2026-11-04 catalogue (objects above 20° altitude at 19:00 KST on 11 Nov, motion over 15 s):
+
+    | Regime | n | Motion in one 15-s frame (median, 10–90 %) | Appearance |
+    |---|---|---|---|
+    | LEO | 146 | 5.8° = **471 px** (229–742 px) | long streak |
+    | MEO (GPS etc.) | 25 | 0.12° = **10 px** (7–11 px) | short dash, about twice a star trail |
+    | GEO | 220 | 0.0001° = **0 px** (0–0.4 px) | fixed point, while the stars trail past it |
+
+    GEO objects stay fixed relative to the ground, so on a tripod they are points. MEO objects make dashes only a few pixels longer than the star trails around them. Neither produces the kind of streak this project detects. Many of them also stay in the frame for the entire window, so counting them as "crossings" would add a constant offset to both bands and mask the twilight-versus-dark difference.
 - **The counts are geometric upper bounds.** They have no brightness limit: every sunlit object in the frame counts, however faint. Expect the camera to detect only a fraction (bright LEO objects). For 2026-11-11 at 180°/60°: 482 twilight-band vs 54 dark-band LEO crossings.
 - **Pointing comparison:** the same computation for 8 azimuths × 45°/60°, at 10-s resolution.
 - **Sky chart:** all-sky azimuthal-equidistant plot (zenith at centre, North up, East left). Shows the frame outline, the Moon at window midpoint, and the sunlit above-horizon tracks of objects that cross the frame, coloured by band (dark band also dashed, so it reads in red night mode).
