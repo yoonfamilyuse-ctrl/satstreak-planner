@@ -129,6 +129,7 @@ export async function mountBreakUi() {
   }
   const current = (new URL(location.href).searchParams.get('data') as State) ?? 'demo';
   const bar = document.createElement('div');
+  bar.id = 'dev-break-ui';
   bar.setAttribute('style', 'position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 12px);transform:translateX(-50%);z-index:9999;display:flex;gap:2px;padding:3px;border-radius:10px;background:#ddd;font:12px -apple-system,system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.2)');
   for (const [s, label] of STATES) {
     const b = document.createElement('button');

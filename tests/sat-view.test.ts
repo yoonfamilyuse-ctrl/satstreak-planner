@@ -135,3 +135,30 @@ describe('Satellites tab: crossing list cells', () => {
     expect(el.querySelector('tr.iss-row .sec.nw')?.textContent).toMatch(/px$/);
   });
 });
+
+describe('Satellites tab: longest real object name in the crossing list (break-ui #9)', () => {
+  it('a forced crossing of DB GME UT (DB-GLOBE MISSION EARTH-UT) shows the full name, wrapping at spaces', async () => {
+    const { parseOmmJson } = await import('../src/sat/elements');
+    const { predictCrossings } = await import('../src/sat/predict');
+    const { DEFAULT_CAMERA } = await import('../src/sat/fov');
+    // Real record from the 2026-11-05 CelesTrak active download. These sun-synchronous objects never pass during the
+    // evening window, so the camera is pointed at a sunlit daytime pass instead (11 Nov, 14:52–14:57 KST, due south).
+    const text = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures/celestrak-long-names-2026-11-05.json'), 'utf8');
+    const sats = parseOmmJson(text).sats.filter((s) => s.norad === 68459);
+    const date = '2026-11-11';
+    const ctx = ctxFor(date);
+    const r = predictCrossings(sats, { start: Date.UTC(2026, 10, 11, 5, 50), end: Date.UTC(2026, 10, 11, 6, 0), stepS: 10, site: ctx.site, camera: { ...DEFAULT_CAMERA, azimuth: 180, altitude: 45 }, pointing: [], phaseLaw: 'fraction' });
+    expect(r.crossings.map((c) => c.norad)).toEqual([68459]);
+    const el = document.createElement('div');
+    document.body.append(el);
+    await store.putSet(meta('set', Date.now()), TEXT);
+    const view = new SatView(() => ctx);
+    view.render(el);
+    await until(() => el.textContent?.includes(`Not locked for ${date}`), 3000, 'Satellites tab');
+    (view as any).result = { key: (view as any).resultKey(), setId: 'set', r, issPasses: [] };
+    view.render(el);
+    const cell = [...el.querySelectorAll('.scroll-y tbody td')].find((td) => td.textContent?.includes('68459'))!;
+    expect(cell.textContent).toContain('DB GME UT (DB-GLOBE MISSION EARTH-UT)');
+    expect(cell.innerHTML).not.toMatch(/nowrap|nw/); // the name may wrap at its spaces and hyphens
+  });
+});
