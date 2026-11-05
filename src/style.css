@@ -561,3 +561,4 @@ h1, h2, h3, .iss-big-line, .ns-what b { text-wrap: balance; }
   .cam-grid input, .cam-grid select, .reading input, .date-pick input { min-width: 0; max-width: 100%; }
   .reading { grid-template-columns: 22px minmax(0, 1fr) 44px; }
 }
+.nw { white-space: nowrap; }

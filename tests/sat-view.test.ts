@@ -114,3 +114,24 @@ describe('Satellites tab: ISS first', () => {
     expect(el.querySelector('tr.iss-row')).not.toBeNull();
   });
 });
+
+describe('Satellites tab: crossing list cells', () => {
+  it('keeps each detection limit and the trail length on one line (break-ui #2)', async () => {
+    const date = '2026-11-11';
+    const ctx = ctxFor(date);
+    const el = document.createElement('div');
+    document.body.append(el);
+    await store.putSet(meta('set', Date.now()), TEXT);
+    const view = new SatView(() => ctx);
+    view.render(el);
+    await until(() => el.textContent?.includes(`Not locked for ${date}`), 3000, 'Satellites tab');
+    const t = Date.UTC(2026, 10, 11, 9, 48, 18);
+    const c = { norad: 25544, regime: 'LEO', name: 'ISS (ZARYA)', epoch: t, entry: t, exit: t + 95_000, entryClipped: false, exitClipped: false, maxAlt: 70, entryAz: 200, entryAlt: 40, exitAz: 100, exitAlt: 60, band: 'twilight', magRel: -2.7, samples: [[-2.7, 1.2]], m1000: -1.3, magKey: 'iss', merged: [], train: [] };
+    const r = { objects: 1, propagationFailed: 0, mergedObjects: 0, stationMerged: 0, crossings: [c], tracks: [], pointing: [], steps: 1, elapsedMs: 1 };
+    (view as any).result = { key: (view as any).resultKey(), setId: 'set', r, issPasses: [] };
+    view.render(el);
+    const lims = el.querySelectorAll('tr.iss-row .mag-lims .nw');
+    expect([...lims].map((x) => x.textContent![0])).toEqual(['P', 'M']);
+    expect(el.querySelector('tr.iss-row .sec.nw')?.textContent).toMatch(/px$/);
+  });
+});

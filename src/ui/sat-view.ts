@@ -641,10 +641,10 @@ export class SatView {
   private magCell(c: Crossing): string {
     const d = this.det(c);
     const trail = d.trailPx !== null ? `${d.trailPx.toFixed(0)} px` : '';
-    if (d.mag === null) return `<span class="sec">—</span><div class="sec">${trail}</div>`;
+    if (d.mag === null) return `<span class="sec">—</span><div class="sec nw">${trail}</div>`;
     const cls = d[this.mag.mode].detectable ? 'bright' : 'sec';
     const v = (r: { limit: number | null; detectable: boolean | null }) => `${r.limit?.toFixed(1)}${r.detectable ? '✓' : '✗'}`;
-    return `<span class="${cls}">${d.mag.toFixed(1)}${c.m1000 === null ? 'a' : ''}</span><div class="sec">P ${v(d.peak)} · M ${v(d.matched)}</div><div class="sec">${trail}</div>`;
+    return `<span class="${cls}">${d.mag.toFixed(1)}${c.m1000 === null ? 'a' : ''}</span><div class="sec mag-lims"><span class="nw">P ${v(d.peak)}</span> <span class="nw">M ${v(d.matched)}</span></div><div class="sec nw">${trail}</div>`;
   }
 
   /** Does the ISS cross the chosen frame tonight? Large, first on the tab, readable at a glance in night mode. */
