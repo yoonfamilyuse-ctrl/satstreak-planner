@@ -4,7 +4,7 @@ Observation-planning web app for a satellite-streak photography research project
 (Sony a7 III + Tamron 28-75 mm at 28 mm, 15 s exposures at a 16 s interval, ~2 h per night).
 Static site, no backend. Mobile-first, with a one-tap red-on-black **night mode**.
 
-**Status: Stages 1–3 done** (night schedule, choosing a night, satellite predictions). Stage 4 (field log) is not built yet.
+**Status: Stages 1–4 done** (night schedule, choosing a night, satellite predictions, field log).
 
 ## Run
 
@@ -18,7 +18,7 @@ npm run build      # type-check + production build into dist/
 npm run preview    # serve dist/ locally
 ```
 
-URLs: `#2026-11-11` opens that evening's plan; `#outlook` opens the 14-night outlook; `#sats/2026-11-11` opens satellite predictions for that night.
+URLs: `#2026-11-11` opens that evening's plan; `#outlook` opens the 14-night outlook; `#sats/2026-11-11` opens satellite predictions for that night; `#log/2026-11-11` opens the field log.
 
 ### Deploy to GitHub Pages
 
@@ -177,6 +177,29 @@ Default site, Heavens-Above "ISS – Visible Passes" fetched 2026-11-04 23:38 UT
 
 All 7 passes agree within 1.2 s (requirement: 1 min), altitudes within 0.4°, all directions identical, and the app predicts no extra visible passes. End times that are shadow entries (9, 11, 13 Nov) also agree to < 0.5 s, which supports the cylindrical shadow model. Heavens-Above shows times to the second, so these differences are at its display resolution. The test fails if any difference exceeds 60 s or 2°.
 
+## What Stage 4 records (field log)
+
+One log per night, **saved in IndexedDB as you type** (status shown at the top), with a list of past logs.
+
+- **Night & site:** date, observers, and GPS position (requested automatically when a log is created, and via "Use GPS"; HTTPS is required, as on GitHub Pages). The accuracy is stored, and the planning site is the fallback.
+- **Camera:** azimuth/altitude (pre-filled from the Satellites tab), focal length, ISO, aperture, exposure, interval, Number of Shots set, and frames actually taken.
+- **Conditions:** clouds (Clear … Overcast), weather, Moon (pre-filled with the prediction; edit it to what you saw), notes (aircraft, lights, interruptions).
+- **Actual start/end** (first/last frame) with seconds, and which clock they were read from: the **camera clock** (EXIF of the first/last frame, recommended) or true time.
+- **Camera clock check:** for the time.is photo before and after the run, enter the photo's EXIF time and the time shown on the screen.
+
+### Timing model (`src/log/fieldlog.ts`, tested in `tests/fieldlog.test.ts`)
+- Clock offset = EXIF time − time.is time (s; + = camera fast). With both checks, the offset at camera time t is **linearly interpolated** between them (constant outside), which absorbs slow drift. True time = camera time − offset.
+- True start T₀ = logged start, corrected by the offset if it was read from the camera. Frame *n* starts at T₀ + (n − 1)·Δ, with Δ the interval setting. A moment t lies in frame ⌊(t − T₀)/Δ⌋ + 1.
+- **Band frames** = frames whose exposure *starts* inside the band, between the moments the Sun reaches −12°/−20° (twilight) or −25°/−35° (dark). These are recomputed from the **actual** start, not the plan. Example: starting 3 min late with a camera 7 s fast moves the twilight band from planned frames 19–173 to actual frames **9–162**.
+- **Effective interval** = (true end − true start)/(frames − 1). A warning appears if it differs from the setting by more than 0.05 s, i.e. the intervalometer drifted or the frame count is wrong. A warning also appears if the clock drift exceeds 2 s.
+- **Photo → band converter:** enter any photo's EXIF time, and the app applies the offset, then gives the true time, frame number, Sun altitude and band. This is the most accurate way to sort individual frames, because it doesn't depend on the interval being exact. You can also enter a frame number.
+
+### Export
+- **Bundle (.zip):** `fieldlog_<date>_<HHMM>.csv` (one row: every field plus the derived timing), `….json` (the log, derived timing and element-set metadata), `elements_<date>_<source>-<YYYYMMDD-HHMM>KST.tle.txt` (that night's locked element set as TLE, objects ≤ 99999), `…_omm.json` (the same set exactly as downloaded, including 6-digit objects), and `README.txt`.
+- The ZIP is written by a small built-in writer (stored entries, CRC-32; PKWARE APPNOTE §4.3), checked with `unzip -t` in the tests.
+- The log uses the element set **locked** to its night in the Satellites tab. If none is locked, the log offers to lock the most recent set.
+- CSV and JSON can also be downloaded separately.
+
 ## Accuracy check
 
 `tests/schedule.test.ts` checks 2026-11-11 at the default site against these values (pass = within 30 s):
@@ -228,9 +251,9 @@ Suggested citation: D. Cross, *Astronomy Engine* v2.1.19, https://github.com/cos
 - **CelesTrak** GP API (https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=json), operated by T. S. Kelso. Orbital elements as OMM JSON, derived from U.S. Space Force (18/19 SDS) data published on Space-Track.org. Format documentation and usage policy: https://celestrak.org/NORAD/documentation/gp-data-formats.php
 - **Heavens-Above** (https://www.heavens-above.com/, Chris Peat): used only once, for validating ISS pass predictions (values copied into the test file).
 
-## Notes for later stages
+## Notes
 
-- **Stage 4 (field log):** the timeline's frame numbers currently assume shooting starts exactly at the scheduled time. Stage 4 will recompute the band-boundary frame numbers from the *actual* start time entered in the log (corrected by the measured camera clock offset), so photos are sorted into the twilight and dark bands correctly.
+- The Night tab's timeline frame numbers assume shooting starts exactly on schedule. For sorting real photos, use the **Log** tab, which recomputes them from the actual start time and the measured camera clock offset.
 
 ## Night mode
 
@@ -256,6 +279,11 @@ src/sat/worker.ts      Web Worker running the heavy computations
 src/sat/store.ts       IndexedDB: element sets and per-night locks
 src/sat/celestrak.ts   CelesTrak download with the 2-hour policy
 src/ui/sat-view.ts     Satellites tab;  src/ui/skychart.ts  all-sky chart
+src/sat/magnitude.ts   brightness model and cited intrinsic magnitudes
+src/sat/starlink-versions.ts  Starlink launch → version (pinned Wikipedia revision)
+src/log/fieldlog.ts    field-log model, clock offset, frame/band timing, CSV
+src/log/zip.ts         minimal ZIP writer for the export bundle
+src/ui/log-view.ts     Log tab
 src/main.ts            app shell, routing, site editing, night mode
 tests/                 unit tests, independent NOAA solar check, ISS vs Heavens-Above
 tests/fixtures/        17-object subset of the real 2026-11-04 CelesTrak download (incl. 6-digit objects)

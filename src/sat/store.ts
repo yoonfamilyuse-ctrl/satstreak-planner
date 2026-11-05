@@ -4,6 +4,7 @@
  * later be recomputed with the elements that were used that night (newer elements give different results).
  */
 import type { ElementFormat } from './elements';
+import type { FieldLog } from '../log/fieldlog';
 
 export interface SetMeta {
   id: string;
@@ -34,7 +35,8 @@ export interface NightSet {
 }
 
 const DB_NAME = 'satstreak';
-const DB_VERSION = 1;
+/** v1: sets, setData, nightSets. v2 (Stage 4): logs. Upgrades keep existing data. */
+const DB_VERSION = 2;
 
 let dbp: Promise<IDBDatabase> | null = null;
 function db(): Promise<IDBDatabase> {
@@ -45,6 +47,7 @@ function db(): Promise<IDBDatabase> {
       if (!d.objectStoreNames.contains('sets')) d.createObjectStore('sets', { keyPath: 'id' });
       if (!d.objectStoreNames.contains('setData')) d.createObjectStore('setData', { keyPath: 'id' });
       if (!d.objectStoreNames.contains('nightSets')) d.createObjectStore('nightSets', { keyPath: 'date' });
+      if (!d.objectStoreNames.contains('logs')) d.createObjectStore('logs', { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -109,4 +112,27 @@ export async function lockNightSet(date: string, setId: string): Promise<NightSe
     t.objectStore('nightSets').put(rec);
   });
   return rec;
+}
+
+// ---------------------------------------------------------------- field logs (Stage 4)
+
+export async function listLogs(): Promise<FieldLog[]> {
+  const all = await tx<FieldLog[]>(['logs'], 'readonly', (t) => t.objectStore('logs').getAll());
+  return all.sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt - a.updatedAt);
+}
+
+export function putLog(log: FieldLog): Promise<void> {
+  return tx(['logs'], 'readwrite', (t) => {
+    t.objectStore('logs').put(log);
+  });
+}
+
+export function deleteLog(id: string): Promise<void> {
+  return tx(['logs'], 'readwrite', (t) => {
+    t.objectStore('logs').delete(id);
+  });
+}
+
+export async function getSetMeta(id: string): Promise<SetMeta | null> {
+  return (await tx<SetMeta | undefined>(['sets'], 'readonly', (t) => t.objectStore('sets').get(id))) ?? null;
 }

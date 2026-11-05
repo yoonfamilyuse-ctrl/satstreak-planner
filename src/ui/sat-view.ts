@@ -43,7 +43,7 @@ function loadMag(): MagSettings {
 const ISS = 25544;
 const BAND_LABEL: Record<BandKey, string> = { twilight: 'Twilight', dark: 'Dark', gap: 'Gap', outside: 'Margin' };
 
-function loadCamera(): Camera {
+export function loadCamera(): Camera {
   try {
     const c = JSON.parse(localStorage.getItem(CAMERA_KEY) ?? 'null');
     if (c && ['azimuth', 'altitude', 'focalLength', 'sensorWidth', 'sensorHeight'].every((k) => Number.isFinite(c[k]))) return c;

@@ -8,9 +8,10 @@ import { cachedForecast, cloudAverage, fetchForecast, type CloudForecast } from 
 import { renderNight } from './ui/night-view';
 import { renderOutlook, type ForecastStatus } from './ui/outlook-view';
 import { SatView } from './ui/sat-view';
+import { LogView } from './ui/log-view';
 
 const NIGHT_KEY = 'satstreak.night';
-type View = 'night' | 'outlook' | 'sats';
+type View = 'night' | 'outlook' | 'sats' | 'log';
 
 const state: { view: View; date: string; site: Site; fc: CloudForecast | null; fs: ForecastStatus } = {
   view: 'night',
@@ -29,9 +30,10 @@ app.innerHTML = `
     <button id="night-toggle" type="button" aria-pressed="false">Night mode</button>
   </header>
   <nav class="tabs" role="tablist">
-    <button type="button" role="tab" data-view="night">Night plan</button>
+    <button type="button" role="tab" data-view="night">Night</button>
     <button type="button" role="tab" data-view="outlook">14 nights</button>
     <button type="button" role="tab" data-view="sats">Satellites</button>
+    <button type="button" role="tab" data-view="log">Log</button>
   </nav>
   <main>
     <section class="card" aria-label="Date and site">
@@ -96,9 +98,9 @@ setNight(document.documentElement.dataset.theme === 'night');
 function applyHash() {
   const h = location.hash.slice(1);
   if (h === 'outlook') state.view = 'outlook';
-  else if (h === 'sats' || h.startsWith('sats/')) {
-    state.view = 'sats';
-    const d = h.slice(5);
+  else if (h === 'sats' || h.startsWith('sats/') || h === 'log' || h.startsWith('log/')) {
+    state.view = h.startsWith('log') ? 'log' : 'sats';
+    const d = h.split('/')[1] ?? '';
     if (isValidDateString(d)) state.date = d;
   } else {
     state.view = 'night';
@@ -108,7 +110,7 @@ function applyHash() {
   window.scrollTo(0, 0);
 }
 
-const dateHash = (d: string) => (state.view === 'sats' ? `sats/${d}` : d);
+const dateHash = (d: string) => (state.view === 'sats' || state.view === 'log' ? `${state.view}/${d}` : d);
 window.addEventListener('hashchange', applyHash);
 
 function go(hash: string) {
@@ -117,7 +119,7 @@ function go(hash: string) {
 }
 
 app.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((b) =>
-  b.addEventListener('click', () => go(b.dataset.view === 'outlook' ? 'outlook' : b.dataset.view === 'sats' ? `sats/${state.date}` : state.date)),
+  b.addEventListener('click', () => go(b.dataset.view === 'outlook' ? 'outlook' : b.dataset.view === 'sats' || b.dataset.view === 'log' ? `${b.dataset.view}/${state.date}` : state.date)),
 );
 dateInput.addEventListener('change', () => isValidDateString(dateInput.value) && go(dateHash(dateInput.value)));
 app.querySelectorAll<HTMLButtonElement>('[data-day]').forEach((b) =>
@@ -222,6 +224,7 @@ function render() {
   $('#site-summary').textContent = `${state.site.name} · ${state.site.latitude.toFixed(4)}°, ${state.site.longitude.toFixed(4)}°, ${state.site.elevation} m`;
 
   if (state.view !== 'sats') satView.detach();
+  if (state.view !== 'log') logView.detach();
   if (state.view === 'outlook') {
     results.innerHTML = renderOutlook(outlook(todayKST(), state.site, state.fc), state.fs);
     results.querySelector<HTMLButtonElement>('#fc-refresh')?.addEventListener('click', () => loadForecast(true));
@@ -231,9 +234,9 @@ function render() {
   dateInput.value = state.date;
   $('#date-label').textContent = `Evening of ${fmtLongDate(state.date)}`;
   const plan = computeNight(state.date, state.site);
-  if (state.view === 'sats') {
+  if (state.view === 'sats' || state.view === 'log') {
     satCtx = { date: state.date, site: state.site, plan };
-    satView.render(results);
+    (state.view === 'sats' ? satView : logView).render(results);
     return;
   }
   // undefined → forecast not loaded (line hidden); null → loaded but date outside the forecast range.
@@ -243,6 +246,7 @@ function render() {
 
 let satCtx: { date: string; site: Site; plan: ReturnType<typeof computeNight> } | null = null;
 const satView = new SatView(() => satCtx!);
+const logView = new LogView(() => satCtx!);
 
 fillSiteForm(state.site);
 applyHash();
