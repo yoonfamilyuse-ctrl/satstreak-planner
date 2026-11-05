@@ -58,7 +58,8 @@ describe('iOS Safari: native feel', () => {
 
   it('the date control drops "tap to pick" below 360 px so it fits on two lines (break-ui #6)', () => {
     expect(css).toMatch(/@media \(max-width: 359px\) \{ \.tap-hint \{ display: none; \} \}/);
-    expect(readFileSync(join(ROOT, 'src/main.ts'), 'utf8')).toContain('<span class="tap-hint"> · tap to pick</span>');
+    expect(readFileSync(join(ROOT, 'src/main.ts'), 'utf8')).toContain('<span class="tap-hint" data-t="tapHint"></span>');
+    expect(readFileSync(join(ROOT, 'src/i18n/en.ts'), 'utf8')).toContain("tapHint: ' · tap to pick'");
   });
 
   it('night 14-night bars: #300000 window on a darker #120000 track, still pure red (break-ui #7)', () => {

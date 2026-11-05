@@ -570,3 +570,11 @@ h1, h2, h3, .iss-big-line, .ns-what b { text-wrap: balance; }
 ::placeholder { color: var(--muted); opacity: 1; }
 /* The ISS card's two 34-px times do not fit side by side below 360 px. */
 @media (max-width: 359px) { .iss-times b { font-size: 28px; } .iss-times > span { min-width: 0; } }
+
+/* ---------- language ---------- */
+.topbar-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.lang-btn { min-width: 52px; padding: 0 10px; border-radius: 999px; border: 1.5px solid var(--rule-strong); background: none; font-weight: 700; font-size: 14px; }
+:root[data-theme='night'] .lang-btn { border-color: var(--rule-strong); color: var(--ink); }
+/* Korean: break between words, not inside them (keep-all), but never overflow. */
+:lang(ko) { word-break: keep-all; overflow-wrap: anywhere; }
+details.site summary > span { flex: none; }

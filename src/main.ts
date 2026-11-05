@@ -3,7 +3,8 @@ import { DEFAULT_SITE, type Site } from './config';
 import { computeNight } from './astro/schedule';
 import { outlook } from './outlook';
 import { loadSite, resetSite, saveSite, validateSite } from './site';
-import { addDays, fmtLongDate, isValidDateString, todayKST } from './time';
+import { addDays, isValidDateString, todayKST } from './time';
+import { getLang, longDate, S, setLang } from './i18n';
 import { cachedForecast, cloudAverage, fetchForecast, type CloudForecast } from './weather/openmeteo';
 import { NightView } from './ui/night-view';
 import { renderOutlook, type ForecastStatus } from './ui/outlook-view';
@@ -29,44 +30,47 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <header class="topbar">
     <h1>Sat-Streak Planner</h1>
-    <button id="night-toggle" type="button" aria-pressed="false">Night</button>
+    <div class="topbar-actions">
+      <button id="lang-toggle" type="button" class="lang-btn"></button>
+      <button id="night-toggle" type="button" aria-pressed="false"></button>
+    </div>
   </header>
   <div class="autonight" id="autonight" hidden>
-    <span>Auto night: Sun below ${AUTO_NIGHT_ALT}°</span>
-    <button type="button" id="day-mode" class="text-btn">Switch to day mode</button>
+    <span id="autonight-text"></span>
+    <button type="button" id="day-mode" class="text-btn" data-t="dayMode"></button>
   </div>
   <nav class="tabs" role="tablist">
-    <button type="button" role="tab" data-view="night">Night</button>
-    <button type="button" role="tab" data-view="outlook">14 nights</button>
-    <button type="button" role="tab" data-view="sats">Satellites</button>
-    <button type="button" role="tab" data-view="log">Log</button>
+    <button type="button" role="tab" data-view="night" data-t="tabs.night"></button>
+    <button type="button" role="tab" data-view="outlook" data-t="tabs.outlook"></button>
+    <button type="button" role="tab" data-view="sats" data-t="tabs.sats"></button>
+    <button type="button" role="tab" data-view="log" data-t="tabs.log"></button>
   </nav>
   <main>
-    <section class="datebar" aria-label="Date and site">
+    <section class="datebar">
       <div id="date-block">
         <div class="date-row">
-          <button type="button" class="icon-btn" data-day="-1" aria-label="Previous night">${CHEVRON_LEFT}</button>
+          <button type="button" class="icon-btn" data-day="-1" data-t-aria="prevNight">${CHEVRON_LEFT}</button>
           <label class="date-pick">
             <span class="date-main" id="date-label"></span>
-            <span class="date-sub">evening, KST<span class="tap-hint"> · tap to pick</span></span>
-            <input id="date" type="date" aria-label="Observation date (evening, KST)" />
+            <span class="date-sub"><span data-t="dateSub"></span><span class="tap-hint" data-t="tapHint"></span></span>
+            <input id="date" type="date" data-t-aria="dateAria" />
           </label>
-          <button type="button" class="icon-btn" data-day="1" aria-label="Next night">${CHEVRON_RIGHT}</button>
-          <button type="button" id="today" class="pill-btn">Tonight</button>
+          <button type="button" class="icon-btn" data-day="1" data-t-aria="nextNight">${CHEVRON_RIGHT}</button>
+          <button type="button" id="today" class="pill-btn" data-t="tonight"></button>
         </div>
       </div>
       <details class="site">
-        <summary>Site: <b id="site-summary"></b></summary>
+        <summary><span data-t="site"></span> <b id="site-summary"></b></summary>
         <form class="site-form" id="site-form" novalidate>
-          <label class="full">Name <input name="name" autocomplete="off" /></label>
-          <label>Latitude (°N) <input name="latitude" inputmode="decimal" /></label>
-          <label>Longitude (°E) <input name="longitude" inputmode="decimal" /></label>
-          <label>Elevation (m) <input name="elevation" inputmode="decimal" /></label>
+          <label class="full"><span data-t="siteName"></span> <input name="name" autocomplete="off" /></label>
+          <label><span data-t="lat"></span> <input name="latitude" inputmode="decimal" /></label>
+          <label><span data-t="lon"></span> <input name="longitude" inputmode="decimal" /></label>
+          <label><span data-t="elev"></span> <input name="elevation" inputmode="decimal" /></label>
           <span></span>
           <div class="actions">
-            <button class="primary" type="submit">Save site</button>
-            <button type="button" id="gps">Use GPS</button>
-            <button type="button" id="reset-site">Reset to default</button>
+            <button class="primary" type="submit" data-t="saveSite"></button>
+            <button type="button" id="gps" data-t="gps"></button>
+            <button type="button" id="reset-site" data-t="reset"></button>
           </div>
         </form>
         <p class="msg" id="site-msg"></p>
@@ -74,8 +78,7 @@ app.innerHTML = `
     </section>
     <div id="results"></div>
   </main>
-  <footer>All times KST (Asia/Seoul, UTC+9). Sun &amp; Moon: <a href="https://github.com/cosinekitty/astronomy" target="_blank" rel="noopener">astronomy-engine</a> 2.1.19.
-    Weather: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0).</footer>
+  <footer id="footer"></footer>
 `;
 
 const $ = <T extends HTMLElement>(sel: string) => app.querySelector<T>(sel)!;
@@ -84,6 +87,31 @@ const siteForm = $<HTMLFormElement>('#site-form');
 const siteMsg = $('#site-msg');
 const results = $('#results');
 const nightBtn = $<HTMLButtonElement>('#night-toggle');
+
+// ---------- language ----------
+
+/** Put the current language's strings into the shell (top bar, tabs, date row, site form, footer). */
+function paintShell() {
+  const L = S().shell as Record<string, any>;
+  const get = (path: string): string => path.split('.').reduce<any>((o, k) => o?.[k], L);
+  app.querySelectorAll<HTMLElement>('[data-t]').forEach((el) => (el.textContent = get(el.dataset.t!)));
+  app.querySelectorAll<HTMLElement>('[data-t-aria]').forEach((el) => el.setAttribute('aria-label', get(el.dataset.tAria!)));
+  $('#autonight-text').textContent = S().shell.autoNight(AUTO_NIGHT_ALT);
+  $('#footer').innerHTML = S().shell.footer;
+  const lb = $<HTMLButtonElement>('#lang-toggle');
+  lb.textContent = S().shell.langBtn;
+  lb.setAttribute('aria-label', S().shell.langAria);
+  lb.lang = getLang() === 'ko' ? 'en' : 'ko';
+  document.documentElement.lang = getLang();
+}
+paintShell();
+$('#lang-toggle').addEventListener('click', () => {
+  setLang(getLang() === 'ko' ? 'en' : 'ko');
+  paintShell();
+  applyTheme();
+  siteMsg.textContent = '';
+  render();
+});
 
 // ---------- night mode ----------
 
@@ -99,7 +127,7 @@ function applyTheme(dec: ThemeDecision = currentDecision()) {
   else delete root.dataset.auto;
   $('#autonight').hidden = dec !== 'auto-night';
   nightBtn.setAttribute('aria-pressed', String(on));
-  nightBtn.textContent = on ? 'Night on' : 'Night';
+  nightBtn.textContent = on ? S().shell.nightOn : S().shell.night;
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', on ? '#000000' : '#e9e7e2');
 }
 nightBtn.addEventListener('click', () => {
@@ -172,42 +200,42 @@ siteForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const fd = new FormData(siteForm);
   const s: Site = {
-    name: String(fd.get('name') || '').trim() || 'Custom site',
+    name: String(fd.get('name') || '').trim() || S().shell.customSite,
     latitude: Number(fd.get('latitude')),
     longitude: Number(fd.get('longitude')),
     elevation: Number(fd.get('elevation')),
   };
   const err = validateSite(s);
   if (err) {
-    siteMsg.textContent = err;
+    siteMsg.textContent = S().shell.siteErr[err] ?? err;
     return;
   }
   saveSite(s);
-  siteMsg.textContent = 'Saved on this device.';
+  siteMsg.textContent = S().shell.saved;
   setSite(s);
 });
 
 $('#reset-site').addEventListener('click', () => {
-  siteMsg.textContent = `Reset to ${DEFAULT_SITE.name}.`;
+  siteMsg.textContent = S().shell.resetTo(DEFAULT_SITE.name);
   setSite(resetSite());
 });
 
 $('#gps').addEventListener('click', () => {
   if (!('geolocation' in navigator)) {
-    siteMsg.textContent = 'Geolocation is not available in this browser.';
+    siteMsg.textContent = S().shell.noGeo;
     return;
   }
-  siteMsg.textContent = 'Getting location…';
+  siteMsg.textContent = S().shell.gettingLoc;
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       const f = siteForm.elements as unknown as Record<string, HTMLInputElement>;
       f.latitude.value = pos.coords.latitude.toFixed(5);
       f.longitude.value = pos.coords.longitude.toFixed(5);
       if (pos.coords.altitude != null) f.elevation.value = pos.coords.altitude.toFixed(0);
-      f.name.value = 'GPS position';
-      siteMsg.textContent = `Filled from GPS (±${Math.round(pos.coords.accuracy)} m). Tap “Save site” to use it.`;
+      f.name.value = S().shell.gpsName;
+      siteMsg.textContent = S().shell.gpsFilled(Math.round(pos.coords.accuracy));
     },
-    (err) => (siteMsg.textContent = `Location failed: ${err.message} (GPS needs HTTPS or localhost).`),
+    (err) => (siteMsg.textContent = S().shell.gpsFailed(err.message)),
     { enableHighAccuracy: true, timeout: 15000 },
   );
 });
@@ -258,7 +286,7 @@ function render() {
   }
 
   dateInput.value = state.date;
-  $('#date-label').textContent = fmtLongDate(state.date);
+  $('#date-label').textContent = longDate(state.date);
   const plan = computeNight(state.date, state.site);
   if (state.view === 'sats' || state.view === 'log') {
     satCtx = { date: state.date, site: state.site, plan };
