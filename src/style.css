@@ -562,3 +562,4 @@ h1, h2, h3, .iss-big-line, .ns-what b { text-wrap: balance; }
   .reading { grid-template-columns: 22px minmax(0, 1fr) 44px; }
 }
 .nw { white-space: nowrap; }
+@media (max-width: 359px) { .tap-hint { display: none; } }

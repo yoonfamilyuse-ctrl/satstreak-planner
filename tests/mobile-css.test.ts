@@ -55,4 +55,9 @@ describe('iOS Safari: native feel', () => {
   it('the 14-night rating never wraps ("No window", break-ui #5)', () => {
     expect(rules.find(([s]) => s === '.ol-cloud .ol-rating')?.[1]).toMatch(/white-space:\s*nowrap/);
   });
+
+  it('the date control drops "tap to pick" below 360 px so it fits on two lines (break-ui #6)', () => {
+    expect(css).toMatch(/@media \(max-width: 359px\) \{ \.tap-hint \{ display: none; \} \}/);
+    expect(readFileSync(join(ROOT, 'src/main.ts'), 'utf8')).toContain('<span class="tap-hint"> · tap to pick</span>');
+  });
 });

@@ -48,7 +48,7 @@ app.innerHTML = `
           <button type="button" class="icon-btn" data-day="-1" aria-label="Previous night">${CHEVRON_LEFT}</button>
           <label class="date-pick">
             <span class="date-main" id="date-label"></span>
-            <span class="date-sub">evening, KST · tap to pick</span>
+            <span class="date-sub">evening, KST<span class="tap-hint"> · tap to pick</span></span>
             <input id="date" type="date" aria-label="Observation date (evening, KST)" />
           </label>
           <button type="button" class="icon-btn" data-day="1" aria-label="Next night">${CHEVRON_RIGHT}</button>
