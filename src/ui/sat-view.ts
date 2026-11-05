@@ -58,6 +58,8 @@ function loadMag(): MagSettings {
 const ISS = 25544;
 const LOCK_ICON = '<svg class="ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
 const bandLabel = (b: BandKey) => S().sats.band[b] ?? b;
+/** Full band name from the glossary (박명 구간 / 어두운 구간 / 구간 사이 / 구간 밖), for running text. */
+const bandFull = (b: BandKey) => (b === 'twilight' || b === 'dark' ? S().common.band[b] : S().log.band[b] ?? b);
 
 /** CelesTrak module errors (English) in the current language. */
 function translateErr(msg: string): string {
@@ -607,7 +609,7 @@ export class SatView {
       const m = bandMin(k);
       const perH = (x: number) => (m ? ((x / m) * 60).toFixed(1) : '—');
       const line = (mdl: DetectionModel, label: string) => `<div class="det-line"><b class="tnum">${cnt(mdl)}</b> <span class="s">${label} · ${S().common.perHour(perH(cnt(mdl)))}</span></div>`;
-      return `<div class="fact band-fact"><span class="fact-k">${T.bandMin(bandLabel(k), m.toFixed(0))}</span>
+      return `<div class="fact band-fact"><span class="fact-k">${T.bandMin(bandFull(k), m.toFixed(0))}</span>
         <b class="tnum">${n}</b><span class="fact-s tnum">${T.perH(perH(n))}</span>
         <span class="fact-s" style="margin-top:6px">${T.detectable}</span>
         ${line('peak', T.peak)}${line('matched', T.matched)}${line('fixed', T.fixedLe(this.mag.limit))}
@@ -684,7 +686,7 @@ export class SatView {
           const f2 = frameAt(w, new Date(c.exit));
           return `<div class="iss-pass">
             <div class="iss-times"><span><span class="fact-k">${T.enters}</span><b class="tnum">${fmtHMS(new Date(c.entry))}</b></span><span><span class="fact-k">${T.exits}</span><b class="tnum">${fmtHMS(new Date(c.exit))}</b></span></div>
-            <p class="iss-line tnum">${f1 !== null ? `<b>${T.issFrames(f1, f2)}</b>${T.ifOnTime}` : ''}${T.inFrameS(((c.exit - c.entry) / 1000).toFixed(0))} · <span class="mark-text">${T.bandOf(bandLabel(c.band))}</span></p>
+            <p class="iss-line tnum">${f1 !== null ? `<b>${T.issFrames(f1, f2)}</b>${T.ifOnTime}` : ''}${T.inFrameS(((c.exit - c.entry) / 1000).toFixed(0))} · <span class="mark-text">${T.bandOf(bandFull(c.band))}</span></p>
             <p class="sec tnum">${T.issDetail(c.maxAlt.toFixed(0), det.mag === null ? '—' : det.mag.toFixed(1), det.trailPx !== null ? det.trailPx.toFixed(0) : null, det.peak.limit !== null ? T.issLims(det.peak.limit.toFixed(1), !!det.peak.detectable, det.matched.limit!.toFixed(1), !!det.matched.detectable) : null)}</p>
           </div>`;
         })

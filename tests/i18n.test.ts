@@ -77,4 +77,13 @@ describe('UI language', () => {
     const bad = shapeVals(ko).filter((t) => /(\d|\})\s?(s|min|h|d)(?![A-Za-z])/.test(t.replace(/\$\{[a-z]+\}(?=[A-Za-z])/g, '')) && !/°\/s/.test(t));
     expect(bad).toEqual([]);
   });
+
+  it('Korean terms: catalog objects are 물체 (never 천체); 화면 only for the time.is screen', () => {
+    const entries = (o: any, path = ''): [string, string][] =>
+      Object.entries(o).flatMap(([k, v]: [string, any]) => (typeof v === 'function' ? [[path + k, v.toString()]] : v && typeof v === 'object' ? entries(v, `${path}${k}.`) : [[path + k, String(v)]]));
+    const all = entries(ko);
+    expect(all.filter(([, t]) => t.includes('천체')).map(([k]) => k)).toEqual([]);
+    const screenOk = new Set(['night.steps.timeisBefore', 'night.steps.timeisAfter', 'log.clockNote', 'log.timeisScreen']);
+    expect(all.filter(([k, t]) => t.includes('화면') && !screenOk.has(k)).map(([k]) => k)).toEqual([]);
+  });
 });

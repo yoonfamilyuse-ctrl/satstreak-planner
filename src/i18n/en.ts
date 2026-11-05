@@ -324,7 +324,8 @@ export const en = {
     computeIss: 'Compute crossings to see whether the ISS crosses the frame tonight.',
     loadSetFirst: 'Load an element set first (Orbital elements, below).',
     computeNote: (a: string, b: string) => `Propagates every object at 10-s steps over ${a}–${b} KST and finds those that are above the horizon, sunlit and inside the frame. Takes ~10–40 s on a phone.`,
-    bandMin: (band: string, m: string) => `${band} band · ${m} min`,
+    /** `band` is the full band name (common.band / log.band), e.g. 'Twilight band'. */
+    bandMin: (band: string, m: string) => `${band} · ${m} min`,
     perH: (h: string) => `crossings · ${h}/h`,
     detectable: 'predicted detectable:',
     peak: 'Peak',
@@ -357,7 +358,7 @@ export const en = {
     issFrames: (a: number, b: number | null) => `Frames ${a}${b !== null && b !== a ? `–${b}` : ''}`,
     ifOnTime: ' if started on time · ',
     inFrameS: (s: string) => `${s} s in frame`,
-    bandOf: (band: string) => `${band} band`,
+    bandOf: (band: string) => band,
     issDetail: (alt: string, mag: string, trail: string | null, lims: string | null) => `Max alt ${alt}° · predicted mag ${mag}${trail !== null ? ` · trail ≈ ${trail} px per frame` : ''}${lims ?? ''}`,
     issLims: (p: string, pd: boolean, m: string, md: boolean) => ` · Peak limit ${p} → ${pd ? 'detectable' : 'not detectable'} · Matched-filter limit ${m} → ${md ? 'detectable' : 'not detectable'}`,
     pass: (t: string) => `Pass: ${t}`,

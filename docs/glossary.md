@@ -7,6 +7,7 @@ README) stay in English.
 | English | 한국어 | Note |
 |---|---|---|
 | twilight band (Sun −12° → −20°) | 박명 구간 | fixed by the project |
+| (film edge print only) | 박명 / 어둠 | short labels on the film strip; running text always uses the full band names |
 | dark band (Sun −25° → −35°) | 어두운 구간 | fixed by the project |
 | band (either) | 구간 | |
 | between the bands (gap) | 구간 사이 | |
@@ -22,6 +23,11 @@ README) stay in English.
 | element set / TLE | 궤도 요소(TLE) | fixed by the project; “궤도 요소” after first use |
 | OMM | OMM | not translated |
 | crossing (object passes through the camera frame) | 화각 통과 | fixed by the project |
+| object (satellite, rocket body or debris in the catalog) | 물체 | never 천체; “물체 수”, “모든 물체” |
+| camera frame / field of view (where a satellite can be seen) | 화각 | “화각 안”, “카메라 화각”, “화각 판정”; 화면 only for a screen (time.is 화면) |
+| decayed / re-entered | 재진입 | |
+| pixel scale (angle per pixel) | 픽셀당 각도 | not a physical size |
+| phase law / phase function | 위상 함수 | |
 | pass (ISS over the sky) | 통과 | “ISS 통과” |
 | detectable | 검출 가능 | fixed by the project |
 | not detectable | 검출 불가 | |
@@ -46,7 +52,7 @@ README) stay in English.
 | % lit (Moon) | 밝기 %, 달이 빛나는 면 | “달 4%” |
 | azimuth / altitude | 방위각 / 고도 | |
 | focal length | 초점 거리 | |
-| field of view | 화각 | |
+| field of view (in degrees) | 화각 | the angle, e.g. 65.3° × 46.4° |
 | pointing | 카메라 방향 | |
 | cloud cover | 구름양 | |
 | forecast | 예보 | |
