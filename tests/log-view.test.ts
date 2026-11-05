@@ -16,6 +16,8 @@ vi.mock('../src/sat/client', () => ({
 
 const { LogView } = await import('../src/ui/log-view');
 const store = await import('../src/sat/store');
+const { newLog: makeLog } = await import('../src/log/fieldlog');
+const newLogFor = (id: string) => ({ ...makeLog('2026-11-11'), id: `log-${id}` });
 
 const DATE = '2026-11-11';
 
@@ -335,5 +337,20 @@ describe('Log tab: field layout', () => {
     expect(q(el, '[data-log="now"][data-target="end"]')!.classList.contains('big-btn')).toBe(true);
     // No 32-px "small" buttons remain in the log form.
     expect(el.querySelectorAll('button.small').length).toBe(0);
+  });
+});
+
+describe('Log tab: list wording', () => {
+  it('says "1 frame", "476 frames", and nothing when no count was entered (break-ui #4)', async () => {
+    const mk = (id: string, shots: number | null) => ({ ...newLogFor(id), camera: { ...newLogFor(id).camera, shotsTaken: shots } });
+    await store.putLog(mk('a', 1));
+    await store.putLog(mk('b', 476));
+    await store.putLog(mk('c', null));
+    const { el } = mount();
+    await until(() => el.textContent?.includes('Past logs (3)'), 3000, 'log list');
+    const side = [...el.querySelectorAll('.log-row-side')].map((x) => x.textContent!.replace(/\s+/g, ' ').trim());
+    expect(side).toEqual(expect.arrayContaining(['—1 frame', '—476 frames', '—']));
+    expect(el.textContent).not.toContain('— frames');
+    expect(el.textContent).not.toContain('1 frames');
   });
 });

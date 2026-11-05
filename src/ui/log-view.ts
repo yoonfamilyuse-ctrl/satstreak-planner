@@ -538,7 +538,7 @@ export class LogView {
       .map(
         (l) => `<li><button type="button" class="log-row" data-log="open" data-id="${esc(l.id)}">
           <span class="log-row-main"><b>${fmtShortDate(l.date)}</b><span class="sec">${esc(l.observers || 'No observers entered')}</span></span>
-          <span class="log-row-side tnum">${l.start ? esc(l.start.slice(11)) : '—'}<span class="sec">${l.camera.shotsTaken ?? '—'} frames</span></span>
+          <span class="log-row-side tnum">${l.start ? esc(l.start.slice(11)) : '—'}${l.camera.shotsTaken !== null ? `<span class="sec">${l.camera.shotsTaken} ${l.camera.shotsTaken === 1 ? 'frame' : 'frames'}</span>` : ''}</span>
           ${CHEVRON}</button></li>`,
       )
       .join('');
