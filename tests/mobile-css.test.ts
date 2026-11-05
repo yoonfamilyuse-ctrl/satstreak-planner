@@ -44,4 +44,11 @@ describe('iOS Safari: native feel', () => {
     expect(narrow).toMatch(/\.block table[^{]*\{[^}]*overflow-x: auto/);
     expect(narrow).toMatch(/\.cam-grid input[^{]*\{[^}]*min-width: 0/);
   });
+
+  it('disclosure chevrons never shrink next to a long label (break-ui #3)', () => {
+    for (const sel of ['details.site summary::after', 'details.how summary::after']) {
+      const body = rules.find(([s]) => s === sel)?.[1] ?? '';
+      expect(body, sel).toMatch(/flex:\s*none/);
+    }
+  });
 });
