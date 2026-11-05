@@ -60,4 +60,9 @@ describe('iOS Safari: native feel', () => {
     expect(css).toMatch(/@media \(max-width: 359px\) \{ \.tap-hint \{ display: none; \} \}/);
     expect(readFileSync(join(ROOT, 'src/main.ts'), 'utf8')).toContain('<span class="tap-hint"> · tap to pick</span>');
   });
+
+  it('night 14-night bars: #300000 window on a darker #120000 track, still pure red (break-ui #7)', () => {
+    expect(css).toMatch(/:root\[data-theme='night'\] \.ol-bar \{ background: #120000; \}/);
+    expect(css).toMatch(/:root\[data-theme='night'\] \.ol-film[^{]*\{ background: #300000; \}/);
+  });
 });

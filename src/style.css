@@ -563,3 +563,6 @@ h1, h2, h3, .iss-big-line, .ns-what b { text-wrap: balance; }
 }
 .nw { white-space: nowrap; }
 @media (max-width: 359px) { .tap-hint { display: none; } }
+/* Night: the window bar is lighter than its track, as by day (#160000 film on a #3a0000 track was nearly invisible). */
+:root[data-theme='night'] .ol-bar { background: #120000; }
+:root[data-theme='night'] .ol-film, :root[data-theme='night'] .lg-film, :root[data-theme='night'] .lg-band { background: #300000; }

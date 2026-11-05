@@ -24,6 +24,8 @@ colors:
   night-mark: "#ff1010"
   night-bar-track: "#1a0000"
   night-bar-shot: "#5a0000"
+  night-sheet-film: "#300000"
+  night-sheet-track: "#120000"
 typography:
   display:
     fontFamily: "-apple-system, BlinkMacSystemFont, system-ui, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif"
@@ -149,6 +151,7 @@ A restrained paper-and-film palette with one grease-pencil red; night mode is a 
 - **Night Ink** (#e81010): text (≈4.5:1 on black). **Night Muted** (#b00000): secondary text (≈3:1, deliberately dim; used at ≥13 px only).
 - **Night Mark** (#ff1010): band marks, now line, current frame, red text that must stand out.
 - **Night Rules** (#3a0000 / #5a0000), **Night Film** (#160000), **Shot Frame** (#2e0000), **Edge Print** (#a80000), **Bar Track / Shot** (#1a0000 / #5a0000).
+- **Night Sheet Film / Track** (#300000 / #120000): the 14-night window bars, lighter than their track as by day.
 
 ### Named Rules
 **The Red Means Band Rule.** Red appears only for the bands, the current frame and the next step (and errors). It is never decoration.
