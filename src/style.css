@@ -566,3 +566,7 @@ h1, h2, h3, .iss-big-line, .ns-what b { text-wrap: balance; }
 /* Night: the window bar is lighter than its track, as by day (#160000 film on a #3a0000 track was nearly invisible). */
 :root[data-theme='night'] .ol-bar { background: #120000; }
 :root[data-theme='night'] .ol-film, :root[data-theme='night'] .lg-film, :root[data-theme='night'] .lg-band { background: #300000; }
+/* Placeholder text: the browser default is grey, i.e. white light at night. */
+::placeholder { color: var(--muted); opacity: 1; }
+/* The ISS card's two 34-px times do not fit side by side below 360 px. */
+@media (max-width: 359px) { .iss-times b { font-size: 28px; } .iss-times > span { min-width: 0; } }

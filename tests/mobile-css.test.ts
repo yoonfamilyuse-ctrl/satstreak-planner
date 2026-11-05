@@ -65,4 +65,8 @@ describe('iOS Safari: native feel', () => {
     expect(css).toMatch(/:root\[data-theme='night'\] \.ol-bar \{ background: #120000; \}/);
     expect(css).toMatch(/:root\[data-theme='night'\] \.ol-film[^{]*\{ background: #300000; \}/);
   });
+
+  it('placeholder text uses the muted token (the browser default grey leaked at night)', () => {
+    expect(rules.find(([s]) => s === '::placeholder')?.[1]).toMatch(/color:\s*var\(--muted\)/);
+  });
 });
