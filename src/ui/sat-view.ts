@@ -446,7 +446,7 @@ export class SatView {
         { type: 'predict', setId, input: { start: w.start.getTime(), end: w.end.getTime(), stepS: 10, site: this.ctx.site, camera: this.camera, pointing: pointingGrid(this.camera), phaseLaw: this.mag.phaseLaw } },
         (f) => {
           const bar = this.el?.querySelector<HTMLElement>('#sat-progress');
-          if (bar) bar.style.width = `${(f * 100).toFixed(0)}%`;
+          if (bar) bar.style.transform = `scaleX(${f.toFixed(3)})`;
         },
       );
       // ISS passes overlapping the window (±20 min), for the "ISS tonight" check.

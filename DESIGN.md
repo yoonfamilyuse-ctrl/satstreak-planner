@@ -194,7 +194,7 @@ Film frames have 2 px corners; buttons and inputs 10 px; legacy cards 14 px; sma
 - **Primary:** film black with paper text, 10 px radius, 44 px tall. In night mode a black button with a red outline and red text.
 - **Pill (Night, Tonight, Now):** 1.5 px ink outline, 999 px radius, 44 px tall. The Night toggle is filled film black by day and black with a red outline at night.
 - **Icon buttons (‹ ›):** 44 × 44 px, drawn SVG chevrons, no border.
-- **Pressed:** paper-rule fill; no animation.
+- **Pressed:** scale 0.97 over 120 ms ease-out (transform only) with a paper-rule fill (night: #1a0000); none under reduced motion.
 
 ### Inputs
 - Raised paper, 1 px strong rule, 10 px radius, 44 px tall, 16 px text (no iOS zoom). Focus: 2 px grease-pencil outline.
@@ -241,5 +241,5 @@ Film frames have 2 px corners; buttons and inputs 10 px; legacy cards 14 px; sma
 ### Don't:
 - **Don't** introduce white, grey, green or blue in night mode, including native controls.
 - **Don't** use shadows, gradients or glass.
-- **Don't** add motion beyond following the current frame (smooth only for short jumps, none under reduced motion).
+- **Don't** add motion beyond following the current frame (smooth only for short jumps) and press feedback (buttons scale to 0.97 over 120 ms, `cubic-bezier(0.23, 1, 0.32, 1)`; rows and the date control darken instead). Both are off under reduced motion.
 - **Don't** change calculations, data formats or export columns for a visual change.

@@ -575,7 +575,7 @@ export class LogView {
     const chips = (path: string, opts: string[]) =>
       `<div class="chips" role="group" aria-label="Clouds">${opts.map((o) => `<button type="button" class="chip" data-log="pick" data-f="${path}" data-v="${esc(o)}" aria-pressed="${get(l, path) === o}">${esc(o)}</button>`).join('')}</div>`;
     const dateWarn = l.date !== this.ctx.date ? `<p class="warn">This log is for ${esc(fmtShortDate(l.date))}; the date bar shows ${fmtShortDate(this.ctx.date)}. Plan times, bands and exports here use the log’s night.</p>` : '';
-    return `<div class="log-top"><button type="button" class="pill-btn" data-log="back">${CHEVRON_L} All logs</button><span class="sec" id="log-status" role="status">${esc(this.status)}</span></div>
+    return `<div class="log-top"><button type="button" class="pill-btn" data-log="back">${CHEVRON_L} All logs</button><span class="sec tnum" id="log-status" role="status">${esc(this.status)}</span></div>
     <h2 class="log-title">Log · ${fmtShortDate(l.date)}</h2>
     ${dateWarn}
     <section class="block"><h2>Shooting</h2>

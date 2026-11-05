@@ -4,18 +4,50 @@
   "title": "Design System: Sat-Streak Planner",
   "extensions": {
     "colorMeta": {
-      "proof-paper": { "role": "neutral", "displayName": "Proof Paper" },
-      "film-black": { "role": "neutral", "displayName": "Film Black" },
-      "grease-pencil": { "role": "primary", "displayName": "Grease Pencil" },
-      "grease-pencil-text": { "role": "primary", "displayName": "Grease Pencil Text" },
-      "edge-print-amber": { "role": "secondary", "displayName": "Edge-Print Amber" },
-      "night-mark": { "role": "primary", "displayName": "Night Mark" }
+      "proof-paper": {
+        "role": "neutral",
+        "displayName": "Proof Paper"
+      },
+      "film-black": {
+        "role": "neutral",
+        "displayName": "Film Black"
+      },
+      "grease-pencil": {
+        "role": "primary",
+        "displayName": "Grease Pencil"
+      },
+      "grease-pencil-text": {
+        "role": "primary",
+        "displayName": "Grease Pencil Text"
+      },
+      "edge-print-amber": {
+        "role": "secondary",
+        "displayName": "Edge-Print Amber"
+      },
+      "night-mark": {
+        "role": "primary",
+        "displayName": "Night Mark"
+      }
     },
     "shadows": [],
     "motion": [
-      { "name": "strip-follow", "value": "scroll-behavior: smooth (jumps under 8 frames only; none with prefers-reduced-motion)", "purpose": "The film strip follows the current frame." }
+      {
+        "name": "strip-follow",
+        "value": "scroll-behavior: smooth (jumps under 8 frames only; none with prefers-reduced-motion)",
+        "purpose": "The film strip follows the current frame."
+      },
+      {
+        "name": "press",
+        "value": "transform: scale(0.97); transition: transform 120ms cubic-bezier(0.23, 1, 0.32, 1)",
+        "purpose": "Buttons respond the moment a finger lands; none under prefers-reduced-motion."
+      }
     ],
-    "breakpoints": [{ "name": "content-max", "value": "680px" }]
+    "breakpoints": [
+      {
+        "name": "content-max",
+        "value": "680px"
+      }
+    ]
   },
   "components": [
     {
@@ -61,14 +93,46 @@
   "narrative": {
     "northStar": "The Contact Sheet",
     "overview": "The night is one roll of film. Every 16 s frame is numbered along the film's edge, and the two solar bands are grease-pencil marks on that roll. Day mode carries proof paper, black film, amber edge print and grease-pencil red; night mode re-values the same tokens as reds on pure black.",
-    "keyCharacteristics": ["Film strip and whole-night bar as the signature, on the Night tab.", "Flat paper surfaces divided by 1 px rules; no shadows.", "One system sans with tabular numerals for every time and frame.", "Red is the only accent, and it always means \"band\" or \"now / next\".", "Every tap target is at least 44 × 44 px."],
-    "rules": [
-      { "name": "The Red Means Band Rule", "body": "Red appears only for the bands, the current frame and the next step (and errors). It is never decoration.", "section": "colors" },
-      { "name": "The No White Light Rule", "body": "In night mode every pixel is a red on black: status bar, tap feedback, focus rings, selection, scrollbars, date-picker icons. If a native part cannot be coloured, it is hidden.", "section": "colors" },
-      { "name": "The Tabular Rule", "body": "Every time, frame number and measurement uses tabular numerals (.tnum), so columns and live counters never jitter.", "section": "typography" },
-      { "name": "The No Eyebrow Rule", "body": "No uppercase tracked kicker above a heading on the Night tab; labels sit beside or below the value they describe.", "section": "typography" }
+    "keyCharacteristics": [
+      "Film strip and whole-night bar as the signature, on the Night tab.",
+      "Flat paper surfaces divided by 1 px rules; no shadows.",
+      "One system sans with tabular numerals for every time and frame.",
+      "Red is the only accent, and it always means \"band\" or \"now / next\".",
+      "Every tap target is at least 44 × 44 px."
     ],
-    "dos": ["Do keep every tap target at least 44 × 44 px (cold hands, gloves).", "Do use the same tokens in both modes; night mode only re-values them.", "Do keep red for bands, now and next.", "Do set theme-color to #e9e7e2 by day and #000000 at night, before first paint."],
-    "donts": ["Don't introduce white, grey, green or blue in night mode, including native controls.", "Don't use shadows, gradients or glass.", "Don't add motion beyond following the current frame (smooth only for short jumps, none under reduced motion).", "Don't change calculations, data formats or export columns for a visual change."]
+    "rules": [
+      {
+        "name": "The Red Means Band Rule",
+        "body": "Red appears only for the bands, the current frame and the next step (and errors). It is never decoration.",
+        "section": "colors"
+      },
+      {
+        "name": "The No White Light Rule",
+        "body": "In night mode every pixel is a red on black: status bar, tap feedback, focus rings, selection, scrollbars, date-picker icons. If a native part cannot be coloured, it is hidden.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Every time, frame number and measurement uses tabular numerals (.tnum), so columns and live counters never jitter.",
+        "section": "typography"
+      },
+      {
+        "name": "The No Eyebrow Rule",
+        "body": "No uppercase tracked kicker above a heading on the Night tab; labels sit beside or below the value they describe.",
+        "section": "typography"
+      }
+    ],
+    "dos": [
+      "Do keep every tap target at least 44 × 44 px (cold hands, gloves).",
+      "Do use the same tokens in both modes; night mode only re-values them.",
+      "Do keep red for bands, now and next.",
+      "Do set theme-color to #e9e7e2 by day and #000000 at night, before first paint."
+    ],
+    "donts": [
+      "Don't introduce white, grey, green or blue in night mode, including native controls.",
+      "Don't use shadows, gradients or glass.",
+      "Don't add motion beyond following the current frame (smooth only for short jumps) and press feedback (buttons scale to 0.97 over 120 ms, cubic-bezier(0.23, 1, 0.32, 1); rows and the date control darken instead). Both are off under reduced motion.",
+      "Don't change calculations, data formats or export columns for a visual change."
+    ]
   }
 }
