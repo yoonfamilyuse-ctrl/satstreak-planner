@@ -1,0 +1,249 @@
+import './style.css';
+import { DEFAULT_SITE, type Site } from './config';
+import { computeNight } from './astro/schedule';
+import { outlook } from './outlook';
+import { loadSite, resetSite, saveSite, validateSite } from './site';
+import { addDays, fmtLongDate, isValidDateString, todayKST } from './time';
+import { cachedForecast, cloudAverage, fetchForecast, type CloudForecast } from './weather/openmeteo';
+import { renderNight } from './ui/night-view';
+import { renderOutlook, type ForecastStatus } from './ui/outlook-view';
+import { SatView } from './ui/sat-view';
+
+const NIGHT_KEY = 'satstreak.night';
+type View = 'night' | 'outlook' | 'sats';
+
+const state: { view: View; date: string; site: Site; fc: CloudForecast | null; fs: ForecastStatus } = {
+  view: 'night',
+  date: todayKST(),
+  site: loadSite(),
+  fc: null,
+  fs: { state: 'loading' },
+};
+
+// ---------- shell ----------
+
+const app = document.querySelector<HTMLDivElement>('#app')!;
+app.innerHTML = `
+  <header class="topbar">
+    <h1>Sat-Streak Planner</h1>
+    <button id="night-toggle" type="button" aria-pressed="false">Night mode</button>
+  </header>
+  <nav class="tabs" role="tablist">
+    <button type="button" role="tab" data-view="night">Night plan</button>
+    <button type="button" role="tab" data-view="outlook">14 nights</button>
+    <button type="button" role="tab" data-view="sats">Satellites</button>
+  </nav>
+  <main>
+    <section class="card" aria-label="Date and site">
+      <div id="date-block">
+        <div class="date-row">
+          <button type="button" data-day="-1" aria-label="Previous day">‹</button>
+          <input id="date" type="date" aria-label="Observation date (evening, KST)" />
+          <button type="button" data-day="1" aria-label="Next day">›</button>
+          <button type="button" id="today">Tonight</button>
+        </div>
+        <p class="date-label" id="date-label"></p>
+      </div>
+      <details class="site">
+        <summary>Site: <b id="site-summary"></b></summary>
+        <form class="site-form" id="site-form" novalidate>
+          <label class="full">Name <input name="name" autocomplete="off" /></label>
+          <label>Latitude (°N) <input name="latitude" inputmode="decimal" /></label>
+          <label>Longitude (°E) <input name="longitude" inputmode="decimal" /></label>
+          <label>Elevation (m) <input name="elevation" inputmode="decimal" /></label>
+          <span></span>
+          <div class="actions">
+            <button class="primary" type="submit">Save site</button>
+            <button type="button" id="gps">Use GPS</button>
+            <button type="button" id="reset-site">Reset to default</button>
+          </div>
+        </form>
+        <p class="msg" id="site-msg"></p>
+      </details>
+    </section>
+    <div id="results"></div>
+  </main>
+  <footer>All times KST (Asia/Seoul, UTC+9). Sun &amp; Moon: <a href="https://github.com/cosinekitty/astronomy" target="_blank" rel="noopener">astronomy-engine</a> 2.1.19.
+    Weather: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0).</footer>
+`;
+
+const $ = <T extends HTMLElement>(sel: string) => app.querySelector<T>(sel)!;
+const dateInput = $<HTMLInputElement>('#date');
+const siteForm = $<HTMLFormElement>('#site-form');
+const siteMsg = $('#site-msg');
+const results = $('#results');
+const nightBtn = $<HTMLButtonElement>('#night-toggle');
+
+// ---------- night mode ----------
+
+function setNight(on: boolean) {
+  if (on) document.documentElement.dataset.theme = 'night';
+  else delete document.documentElement.dataset.theme;
+  nightBtn.setAttribute('aria-pressed', String(on));
+  nightBtn.textContent = on ? 'Night: ON' : 'Night mode';
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', on ? '#000000' : '#0d1117');
+  try {
+    localStorage.setItem(NIGHT_KEY, on ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+nightBtn.addEventListener('click', () => setNight(document.documentElement.dataset.theme !== 'night'));
+setNight(document.documentElement.dataset.theme === 'night');
+
+// ---------- routing: #outlook, #YYYY-MM-DD (night plan), #sats/YYYY-MM-DD ----------
+
+function applyHash() {
+  const h = location.hash.slice(1);
+  if (h === 'outlook') state.view = 'outlook';
+  else if (h === 'sats' || h.startsWith('sats/')) {
+    state.view = 'sats';
+    const d = h.slice(5);
+    if (isValidDateString(d)) state.date = d;
+  } else {
+    state.view = 'night';
+    if (isValidDateString(h)) state.date = h;
+  }
+  render();
+  window.scrollTo(0, 0);
+}
+
+const dateHash = (d: string) => (state.view === 'sats' ? `sats/${d}` : d);
+window.addEventListener('hashchange', applyHash);
+
+function go(hash: string) {
+  if (location.hash.slice(1) === hash) applyHash();
+  else location.hash = hash;
+}
+
+app.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((b) =>
+  b.addEventListener('click', () => go(b.dataset.view === 'outlook' ? 'outlook' : b.dataset.view === 'sats' ? `sats/${state.date}` : state.date)),
+);
+dateInput.addEventListener('change', () => isValidDateString(dateInput.value) && go(dateHash(dateInput.value)));
+app.querySelectorAll<HTMLButtonElement>('[data-day]').forEach((b) =>
+  b.addEventListener('click', () => go(dateHash(addDays(state.date, Number(b.dataset.day))))),
+);
+$('#today').addEventListener('click', () => go(dateHash(todayKST())));
+
+// ---------- site ----------
+
+function fillSiteForm(s: Site) {
+  const f = siteForm.elements as unknown as Record<string, HTMLInputElement>;
+  f.name.value = s.name;
+  f.latitude.value = String(s.latitude);
+  f.longitude.value = String(s.longitude);
+  f.elevation.value = String(s.elevation);
+}
+
+function setSite(s: Site) {
+  state.site = s;
+  fillSiteForm(s);
+  loadForecast();
+}
+
+siteForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const fd = new FormData(siteForm);
+  const s: Site = {
+    name: String(fd.get('name') || '').trim() || 'Custom site',
+    latitude: Number(fd.get('latitude')),
+    longitude: Number(fd.get('longitude')),
+    elevation: Number(fd.get('elevation')),
+  };
+  const err = validateSite(s);
+  if (err) {
+    siteMsg.textContent = err;
+    return;
+  }
+  saveSite(s);
+  siteMsg.textContent = 'Saved on this device.';
+  setSite(s);
+});
+
+$('#reset-site').addEventListener('click', () => {
+  siteMsg.textContent = `Reset to ${DEFAULT_SITE.name}.`;
+  setSite(resetSite());
+});
+
+$('#gps').addEventListener('click', () => {
+  if (!('geolocation' in navigator)) {
+    siteMsg.textContent = 'Geolocation is not available in this browser.';
+    return;
+  }
+  siteMsg.textContent = 'Getting location…';
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const f = siteForm.elements as unknown as Record<string, HTMLInputElement>;
+      f.latitude.value = pos.coords.latitude.toFixed(5);
+      f.longitude.value = pos.coords.longitude.toFixed(5);
+      if (pos.coords.altitude != null) f.elevation.value = pos.coords.altitude.toFixed(0);
+      f.name.value = 'GPS position';
+      siteMsg.textContent = `Filled from GPS (±${Math.round(pos.coords.accuracy)} m). Tap “Save site” to use it.`;
+    },
+    (err) => (siteMsg.textContent = `Location failed: ${err.message} (GPS needs HTTPS or localhost).`),
+    { enableHighAccuracy: true, timeout: 15000 },
+  );
+});
+
+// ---------- cloud forecast ----------
+
+let fcRequest = 0;
+async function loadForecast(force = false) {
+  const req = ++fcRequest;
+  const cached = force ? null : cachedForecast(state.site);
+  if (cached) {
+    state.fc = cached;
+    state.fs = { state: 'ok', fetchedAt: cached.fetchedAt };
+    render();
+    return;
+  }
+  state.fs = { state: 'loading' };
+  render();
+  try {
+    const fc = await fetchForecast(state.site, { force: true });
+    if (req !== fcRequest) return; // superseded (site changed)
+    state.fc = fc;
+    state.fs = { state: 'ok', fetchedAt: fc.fetchedAt };
+  } catch (e) {
+    if (req !== fcRequest) return;
+    // Keep an older forecast for the same site if we have one in memory.
+    const old = state.fc && Math.abs(state.fc.latitude - state.site.latitude) < 0.01 && Math.abs(state.fc.longitude - state.site.longitude) < 0.01 ? state.fc : null;
+    state.fc = old;
+    state.fs = { state: 'error', message: navigator.onLine === false ? 'offline' : String((e as Error).message ?? e), fetchedAt: old?.fetchedAt };
+  }
+  render();
+}
+
+// ---------- rendering ----------
+
+function render() {
+  app.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.view === state.view)));
+  $('#date-block').hidden = state.view === 'outlook';
+  $('#site-summary').textContent = `${state.site.name} · ${state.site.latitude.toFixed(4)}°, ${state.site.longitude.toFixed(4)}°, ${state.site.elevation} m`;
+
+  if (state.view !== 'sats') satView.detach();
+  if (state.view === 'outlook') {
+    results.innerHTML = renderOutlook(outlook(todayKST(), state.site, state.fc), state.fs);
+    results.querySelector<HTMLButtonElement>('#fc-refresh')?.addEventListener('click', () => loadForecast(true));
+    return;
+  }
+
+  dateInput.value = state.date;
+  $('#date-label').textContent = `Evening of ${fmtLongDate(state.date)}`;
+  const plan = computeNight(state.date, state.site);
+  if (state.view === 'sats') {
+    satCtx = { date: state.date, site: state.site, plan };
+    satView.render(results);
+    return;
+  }
+  // undefined → forecast not loaded (line hidden); null → loaded but date outside the forecast range.
+  const cloud = state.fc && plan.window ? cloudAverage(state.fc, plan.window.start, plan.window.end) : state.fc ? null : undefined;
+  results.innerHTML = renderNight(plan, cloud);
+}
+
+let satCtx: { date: string; site: Site; plan: ReturnType<typeof computeNight> } | null = null;
+const satView = new SatView(() => satCtx!);
+
+fillSiteForm(state.site);
+applyHash();
+loadForecast();
