@@ -211,6 +211,10 @@ Film frames have 2 px corners; buttons and inputs 10 px; legacy cards 14 px; sma
 ### ISS card (Satellites tab)
 - First thing on the Satellites tab: an “ISS” badge beside a one-line answer (19 px bold), then entry and exit times at 34 px, the frame numbers for an on-time start, the band, and the detail line. A 2.5 px grease-pencil outline when the ISS crosses the frame; a 1.5 px strong rule otherwise. The ISS row in the crossing list is bold with its name in grease-pencil text.
 
+### Proof sheet (14 nights)
+- One 72 px row per night, all on a shared evening time axis (half-hour ticks) so windows line up: date (weekday bold, day month below), a 20 px bar with the window as film black, both bands as 3 px grease-pencil rules, and the Moon-up time as a 4 px amber lane under the bar; window, shots and Moon below; mean cloud at 24 px on the right with the rating.
+- Good nights are circled with a 2.5 px grease-pencil rounded outline (16 px radius); poor and no-window nights dim their date and cloud figure. The whole row is the link to that night.
+
 ### Checkboxes
 - Drawn, not native: 22 px, 2 px ink border, 5 px corners; checked = film-black fill with a paper tick (night: black fill, red border and tick). The native checkbox draws a light tick even with `accent-color`.
 
