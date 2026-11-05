@@ -229,3 +229,24 @@ describe('Log tab: "Now" fills a phone-clock time', () => {
     expect(derived).not.toContain('(corrected)');
   });
 });
+
+describe('Log tab: frame → band converter', () => {
+  it('evaluates the Sun at mid-exposure of the logged exposure time', async () => {
+    const { formatKst, frameStart, parseKst } = await import('../src/log/fieldlog');
+    const { sunAltitude } = await import('../src/astro/sun');
+    const { DEFAULT_SITE } = await import('../src/config');
+    const { el, ctx } = mount();
+    await newLog(el);
+    const start = formatKst(ctx.plan.window!.start.getTime());
+    typeInto(q<HTMLInputElement>(el, '[data-f="start"]')!, start);
+    typeInto(q<HTMLInputElement>(el, '[data-f="camera.exposureS"]')!, '30');
+    typeInto(q<HTMLInputElement>(el, '[data-f="camera.intervalS"]')!, '31');
+    typeInto(q<HTMLInputElement>(el, '#conv-frame')!, '40');
+    const text = q(el, '#log-conv')!.textContent!;
+    const fs = frameStart(parseKst(start)!, 31, 40);
+    const mid = sunAltitude(new Date(fs + 15_000), DEFAULT_SITE).toFixed(2);
+    const wrong = sunAltitude(new Date(fs + 7_500), DEFAULT_SITE).toFixed(2);
+    expect(mid).not.toBe(wrong); // the test can tell the two apart
+    expect(text).toContain(`Sun ${mid}° at mid-exposure`);
+  });
+});

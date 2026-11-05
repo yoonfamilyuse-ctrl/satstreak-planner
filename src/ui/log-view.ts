@@ -435,7 +435,7 @@ export class LogView {
       csv: `# ISS predicted positions per frame, night ${log.date}; A: EXIF = exposure start, B: EXIF = exposure end; elements ${meta?.label ?? log.elementSetId} (ISS epoch ${new Date(r.epoch).toISOString()})\n` + csv.join('\n') + '\n',
       html: rows.length
         ? `<div class="scroll-x"><table><thead><tr><th>Conv.</th><th class="r">Frame</th><th>Exposure start (true)</th><th>ISS at start (az, alt)</th><th>ISS at end</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
-           <p class="note">A = EXIF marks the exposure start; B = EXIF marks the end (true start 15 s earlier). The ISS moves ≈ 1°/s here, so 1 s of timing error ≈ 1° along the track. ISS element epoch ${fmtDateTime(r.epoch)} KST.</p>
+           <p class="note">A = EXIF marks the exposure start; B = EXIF marks the end (true start ${exp} s earlier). The ISS moves ≈ 1°/s here, so 1 s of timing error ≈ 1° along the track. ISS element epoch ${fmtDateTime(r.epoch)} KST.</p>
            <div class="btn-row"><button type="button" class="small" data-log="iss-csv">Download ISS timing CSV</button></div>`
         : '<p class="note">The ISS does not enter this frame during the logged run (check pointing, start time and frame count).</p>',
     };
@@ -655,7 +655,8 @@ export class LogView {
       const n = Number(keepFrame);
       if (keepFrame && Number.isInteger(n) && n >= 1) {
         const tt = frameStart(d.start, d.interval, n);
-        const sa = sunAltitude(new Date(tt + 7500), this.ctx.site);
+        const exp = this.current.camera.exposureS ?? 15; // logged exposure (s); 15 s if not entered
+        const sa = sunAltitude(new Date(tt + exp * 500), this.ctx.site); // mid-exposure = start + exp/2
         conv += `<p class="tnum">Frame ${n}: starts ${fmtHMS(new Date(tt))} true · Sun ${sa.toFixed(2)}° at mid-exposure · <b>${BAND_NAME[bandOf(sa)]}</b></p>`;
       }
     }
