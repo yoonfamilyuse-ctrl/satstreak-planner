@@ -76,7 +76,7 @@ export class SatView {
   private camera = loadCamera();
   private busy: string | null = null;
   private msg: { text: string; kind: 'info' | 'error' } | null = null;
-  private result: { key: string; setId: string; r: PredictResult } | null = null;
+  private result: { key: string; setId: string; r: PredictResult; issPasses: Pass[] } | null = null;
   private passes: { setId: string; passes: Pass[]; epoch: number; name: string; computedAt: number } | null = null;
   private showAllPasses = false;
   private leoOnly = true;
@@ -379,7 +379,20 @@ export class SatView {
           if (bar) bar.style.width = `${(f * 100).toFixed(0)}%`;
         },
       );
-      this.result = { key, setId, r: r.result };
+      // ISS passes overlapping the window (±20 min), for the "ISS tonight" check.
+      let issPasses: Pass[] = [];
+      try {
+        const pr = await this.worker.call<{ passes: Pass[] }>({
+          type: 'passes',
+          setId,
+          norad: ISS,
+          options: { start: w.start.getTime() - 20 * 60_000, end: w.end.getTime() + 20 * 60_000, site: this.ctx.site, phaseLaw: this.mag.phaseLaw },
+        });
+        issPasses = pr.passes.filter((p) => p.set.t >= w.start.getTime() && p.rise.t <= w.end.getTime());
+      } catch {
+        /* ISS not in this element set */
+      }
+      this.result = { key, setId, r: r.result, issPasses };
     });
   }
 
@@ -515,6 +528,7 @@ export class SatView {
     const m = this.meta(res.setId);
     return `<section class="card"><h2>Predicted crossings · ${fmtShortDate(this.ctx.date)}</h2>
       <label class="check"><input type="checkbox" id="leo-only"${this.leoOnly ? ' checked' : ''}> LEO only (period &lt; 128 min) — ${nonLeo} MEO/GEO/HEO ${this.leoOnly ? 'hidden' : 'included'}</label>
+      ${this.issTonight(res.r, res.issPasses)}
       ${this.magSettings()}
       <div class="stats">${stat('twilight')}${stat('dark')}</div>
       <p class="note tnum">Also ${count('gap')} between the bands and ${count('outside')} in the 5-min margins. ${r.objects.toLocaleString()} objects propagated, ${r.propagationFailed} failed (decayed / SGP4 error), ${r.mergedObjects} merged into co-located objects (docked modules/vehicles, &lt; 2 km apart) · ${r.steps} steps · ${(r.elapsedMs / 1000).toFixed(1)} s. Elements: ${m ? fmtDateTime(m.downloadedAt) : '?'} KST.</p>
@@ -532,6 +546,27 @@ export class SatView {
     if (m === null) return '<span class="sec">—</span>';
     const cls = m <= this.mag.limit ? 'bright' : 'sec';
     return `<span class="${cls}">${m.toFixed(1)}${c.m1000 === null ? 'a' : ''}</span>`;
+  }
+
+  /** Does the ISS cross the chosen frame tonight? */
+  private issTonight(r: PredictResult, passes: Pass[]): string {
+    const xs = r.crossings.filter((c) => c.norad === ISS);
+    const d = this.ctx.date;
+    const pt = (p: { t: number; alt: number; az: number }) => `${fmtHMS(new Date(p.t))} ${p.alt.toFixed(0)}° ${compass(p.az)}`;
+    const passTxt = passes
+      .map((p) => (p.visible ? `visible ${pt(p.visible.start)} → highest ${pt(p.visible.max)} → ${pt(p.visible.end)}` : `above horizon ${fmtHM(new Date(p.rise.t), d)}–${fmtHM(new Date(p.set.t), d)} but not visible (in shadow or Sun too high)`))
+      .join('; ');
+    if (xs.length) {
+      const rows = xs
+        .map((c) => {
+          const m = this.magOf(c);
+          return `<li><b>Enters ${fmtHMS(new Date(c.entry))}, exits ${fmtHMS(new Date(c.exit))} KST</b> (${((c.exit - c.entry) / 1000).toFixed(0)} s, frames ≈ ${Math.ceil((c.exit - c.entry) / 16000)}), max alt ${c.maxAlt.toFixed(0)}°, predicted mag ${m === null ? '—' : m.toFixed(1)}, ${BAND_LABEL[c.band].toLowerCase()} band</li>`;
+        })
+        .join('');
+      return `<div class="iss-box yes"><b>ISS crosses this frame tonight</b><ul>${rows}</ul><p class="sec">Pass: ${passTxt || '—'}</p></div>`;
+    }
+    if (passes.length) return `<div class="iss-box"><b>ISS does not enter this frame tonight.</b><p class="sec">Pass: ${passTxt}. See the ISS column in the pointing table for frames it does cross.</p></div>`;
+    return `<div class="iss-box"><b>No ISS pass during the shooting window.</b></div>`;
   }
 
   private magSettings(): string {
@@ -559,7 +594,8 @@ export class SatView {
         }).length;
         return { all: rb.length, bright };
       };
-      return { pc, tw: c('twilight'), dk: c('dark') };
+      const iss = pc.runs.filter((x) => x.norad === ISS);
+      return { pc, tw: c('twilight'), dk: c('dark'), iss };
     });
     // Twilight glow: Sun's azimuth when the twilight band starts (Sun at −12°).
     const t12 = this.ctx.plan.sun.descending[-12];
@@ -576,21 +612,23 @@ export class SatView {
     const bestBright = Math.max(...stats.map((x) => x.tw.bright + x.dk.bright));
     const rows = stats
       .sort((a, b) => a.pc.azimuth - b.pc.azimuth || a.pc.altitude - b.pc.altitude)
-      .map(({ pc, tw, dk }) => {
+      .map(({ pc, tw, dk, iss }) => {
         const cur = this.camera.azimuth === pc.azimuth && this.camera.altitude === pc.altitude;
         const ms = moonSep(pc.azimuth, pc.altitude);
         return `<tr class="${cur ? 'cur' : ''}"><td>${compass(pc.azimuth)} <span class="sec">${pc.azimuth}°/${pc.altitude}°</span></td>
           <td class="r tnum">${sun ? `${azimuthDifference(pc.azimuth, sun.azimuth).toFixed(0)}°` : '—'}</td>
           <td class="r tnum">${ms === null ? '<span class="sec">down</span>' : `${ms.toFixed(0)}°`}</td>
           <td class="r tnum${tw.all + dk.all === best ? ' best' : ''}">${tw.all} / ${dk.all}</td>
-          <td class="r tnum${tw.bright + dk.bright === bestBright ? ' best' : ''}">${tw.bright} / ${dk.bright}</td></tr>`;
+          <td class="r tnum${tw.bright + dk.bright === bestBright ? ' best' : ''}">${tw.bright} / ${dk.bright}</td>
+          <td class="r tnum">${iss.length ? iss.map((x) => `${fmtHMS(new Date(x.start))}–${fmtHMS(new Date(x.end))}`).join('<br>') : '<span class="sec">—</span>'}</td></tr>`;
       })
       .join('');
     return `<h3>Pointing comparison</h3>
-      <div class="scroll-x"><table class="pointing"><thead><tr><th>Az / alt</th><th class="r">Sun Δaz</th><th class="r">Moon</th><th class="r">All<div class="sec">twilight / dark</div></th><th class="r">≤ mag ${lim}<div class="sec">twilight / dark</div></th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="scroll-x"><table class="pointing"><thead><tr><th>Az / alt</th><th class="r">Sun Δaz</th><th class="r">Moon</th><th class="r">All<div class="sec">twilight / dark</div></th><th class="r">≤ mag ${lim}<div class="sec">twilight / dark</div></th><th class="r">ISS in frame<div class="sec">KST, 10-s</div></th></tr></thead><tbody>${rows}</tbody></table></div>
       <p class="note">${this.leoOnly ? 'LEO crossings' : 'Crossings (all regimes)'} per band for the same lens pointed elsewhere (10-s resolution). Bold = highest; shaded = your current pointing if it is on this grid.
         <b>Sun Δaz</b> = azimuth difference from the Sun at the start of the twilight band (${sun && t12 ? `Sun at ${sun.azimuth.toFixed(0)}° ${compass(sun.azimuth)}, ${fmtHM(t12)} KST` : 'n/a'}); small values look towards the residual twilight glow.
         <b>Moon</b> = smallest angular distance from the frame centre to the Moon while it is up during the window (“down” = below the horizon all window).
+        <b>ISS in frame</b> = first–last 10-s sample with the ISS inside that frame (exact times for your chosen pointing are in the box above).
         Keep one pointing all night so both bands are comparable.</p>`;
   }
 

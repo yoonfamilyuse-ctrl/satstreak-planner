@@ -141,6 +141,25 @@ describe('camera-crossing prediction (sample set, 2026-11-11 window)', () => {
     const iss = r.crossings.find((c) => c.norad === 25544);
     expect(iss?.band).toBe('twilight');
   });
+
+  it('ISS check for 2026-11-11: enters the S/60° frame at 18:48:18 and leaves at 18:49:53 KST', () => {
+    const sats = parseElementText(FIXTURE).sats;
+    const r = predictCrossings(sats, {
+      start: Date.UTC(2026, 10, 11, 9, 14, 0),
+      end: Date.UTC(2026, 10, 11, 11, 20, 40),
+      stepS: 10,
+      site: DEFAULT_SITE,
+      camera: { ...DEFAULT_CAMERA, azimuth: 180, altitude: 60 },
+      pointing: [{ ...DEFAULT_CAMERA, azimuth: 270, altitude: 45 }],
+    });
+    const iss = r.crossings.find((c) => c.norad === 25544)!;
+    expect(Math.abs(iss.entry - Date.UTC(2026, 10, 11, 9, 48, 18)) / 1000).toBeLessThan(1);
+    expect(Math.abs(iss.exit - Date.UTC(2026, 10, 11, 9, 49, 53)) / 1000).toBeLessThan(1);
+    expect(iss.maxAlt).toBeGreaterThan(69);
+    expect(iss.m1000! + iss.magRel).toBeLessThan(-3); // bright
+    // W/45° does not see it.
+    expect(r.pointing[0].runs.some((x) => x.norad === 25544)).toBe(false);
+  });
 });
 
 /**

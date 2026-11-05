@@ -243,3 +243,8 @@ table.pointing td.best { font-weight: 800; }
 .mag-settings .cam-grid { margin-top: 8px; }
 .cam-grid .full { grid-column: 1 / -1; }
 table.pointing tr.cur td { background: var(--line); }
+
+.iss-box { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 0 0 12px; font-size: 14px; }
+.iss-box.yes { border: 2px solid var(--good); }
+.iss-box ul { margin: 6px 0; padding-left: 18px; }
+.iss-box p { margin: 4px 0 0; }

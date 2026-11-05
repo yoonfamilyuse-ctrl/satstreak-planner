@@ -143,6 +143,22 @@ Heavens-Above is itself a model, not a measurement, so this checks consistency, 
 - **CSV export** of the crossing list includes the element epoch of each object and the set id.
 - The worker propagates the full catalogue (16,873 objects × 762 steps) in ~8 s on a laptop. Expect ~20–40 s on a phone.
 
+### ISS in the frame
+After computing crossings, a box above the counts says whether the ISS enters the chosen frame that night. If it does, it gives entry/exit times (bisection, 0.1 s), duration, approximate number of frames, maximum altitude, predicted magnitude and band. If it doesn't, it describes the ISS pass. The pointing table has an "ISS in frame" column (first–last 10-s sample) for every candidate pointing. Docked modules and vehicles are merged into the ISS (see co-located objects).
+
+Example, 2026-11-11 (pass 18:46:22 SW → 18:49:40 70° SE → enters Earth's shadow 18:50:05 at 60° E), elements of 2026-11-04:
+
+| Pointing | ISS in frame (KST) |
+|---|---|
+| S 180°/60° (exact) | **18:48:18 → 18:49:53** (95 s ≈ 6 frames), max alt 70°, mag −4.0, twilight band |
+| S 180°/45° | 18:48:00–18:49:20 |
+| SW 225°/45° · SW 225°/60° | 18:47:50–18:49:10 · 18:48:30–18:49:30 |
+| SE 135°/60° | 18:49:10–18:50:00 |
+| E 90°/60° · NE 45°/60° · E 90°/45° | 18:49:40–18:50:00 · 18:49:50–18:50:00 · 18:50:00 only (shadow entry) |
+| N, NE/45°, SE/45°, W, NW | not in frame |
+
+Recompute with fresh elements on the day: the ISS reboosts, and older elements drift by seconds per day.
+
 ### ISS passes
 Next 14 days, passes found at 10-s steps then refined: rise/set by bisection (0.1 s), culmination by golden-section search. The **visible** part uses the same definition as Heavens-Above's tables: altitude ≥ 10°, sunlit (cylindrical shadow), Sun ≤ −6°. The default list shows evening passes whose highest visible altitude is ≥ 30°.
 
