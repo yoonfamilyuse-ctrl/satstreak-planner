@@ -18,7 +18,9 @@ import {
   parseKst,
   toTrueTime,
   trueStartEnd,
+  TIME_SOURCES,
   type FieldLog,
+  type TimeSource,
 } from '../log/fieldlog';
 import { makeZip } from '../log/zip';
 import { SatWorker } from '../sat/client';
@@ -206,8 +208,9 @@ export class LogView {
       return this.paint();
     }
     if (act === 'now') {
-      const target = b.dataset.target!;
+      const target = b.dataset.target as 'start' | 'end';
       set(this.current, target, formatKst(Date.now()));
+      this.current!.timeSource[target] = 'phone'; // the phone's clock, not the camera's: no offset correction
       void this.save();
       return this.paint();
     }
@@ -319,13 +322,13 @@ export class LogView {
     const log = this.current!;
     const plan = this.planFor(log);
     const clock = clockModel(log);
-    const { start, end, corrected } = trueStartEnd(log);
+    const { start, end, corrected, startCorrected, endCorrected } = trueStartEnd(log);
     const interval = log.camera.intervalS ?? 16;
     const shots = log.camera.shotsTaken ?? log.camera.shotsPlanned;
     const eff = effectiveInterval(start, end, shots);
     const bands = start !== null && plan ? bandFrames(start, interval, shots, plan.bands) : [];
     const lateS = start !== null && plan?.window ? (start - plan.window.start.getTime()) / 1000 : null;
-    return { plan, clock, start, end, corrected, interval, shots, eff, bands, lateS };
+    return { plan, clock, start, end, corrected, startCorrected, endCorrected, interval, shots, eff, bands, lateS };
   }
 
   private derivedFlat(): Record<string, string | number | null> {
@@ -534,8 +537,10 @@ export class LogView {
     const num = (path: string, label: string, step = 'any', extra = '') =>
       `<label>${label}<input data-f="${path}" data-kind="num" type="number" inputmode="decimal" step="${step}" value="${get(l, path) ?? ''}" ${extra}></label>`;
     const txt = (path: string, label: string, ph = '') => `<label class="full">${label}<input data-f="${path}" type="text" value="${esc(String(get(l, path) ?? ''))}" placeholder="${esc(ph)}"></label>`;
-    const dt = (path: string, label: string) =>
-      `<label class="full">${label}<span class="dt-row"><input data-f="${path}" type="datetime-local" step="1" value="${esc(String(get(l, path) ?? ''))}"><button type="button" class="small" data-log="now" data-target="${path}">Now</button></span></label>`;
+    const SRC_LABEL: Record<TimeSource, string> = { camera: 'Camera clock (EXIF)', true: 'True time (time.is)', phone: 'Phone clock (Now)' };
+    const dt = (path: 'start' | 'end', label: string) =>
+      `<label class="full">${label}<span class="dt-row"><input data-f="${path}" type="datetime-local" step="1" value="${esc(String(get(l, path) ?? ''))}"><button type="button" class="small" data-log="now" data-target="${path}">Now</button></span></label>
+      <label class="full src-row">Read from<select data-f="timeSource.${path}" aria-label="${label}: clock it was read from">${TIME_SOURCES.map((o) => `<option value="${o}"${l.timeSource[path] === o ? ' selected' : ''}>${SRC_LABEL[o]}</option>`).join('')}</select></label>`;
     const sel = (path: string, label: string, opts: string[]) =>
       `<label class="full">${label}<select data-f="${path}">${['', ...opts].map((o) => `<option${get(l, path) === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select></label>`;
     const plan = this.planFor(l);
@@ -571,9 +576,8 @@ export class LogView {
     <section class="card"><h2>Actual start / end</h2>
       <div class="cam-grid">
         ${dt('start', 'Start (first frame)')}${dt('end', 'End (last frame)')}
-        <label class="full">These times were read from
-          <select data-f="timeSource"><option value="camera"${l.timeSource === 'camera' ? ' selected' : ''}>Camera clock (EXIF of first/last frame)</option><option value="true"${l.timeSource === 'true' ? ' selected' : ''}>True time (phone / time.is)</option></select></label>
       </div>
+      <p class="note">Camera-clock times are corrected by the measured offset; true and phone times are used as they are. "Now" fills the phone’s time and sets the source to Phone clock.</p>
       <p class="note">Plan: start ${plan?.window ? fmtHMS(plan.window.start) : '—'}, end ${plan?.window ? fmtHMS(plan.window.end) : '—'} KST.</p>
     </section>
     <section class="card"><h2>Camera clock check (time.is)</h2>
@@ -661,8 +665,8 @@ export class LogView {
     if (convBox) convBox.innerHTML = conv || '<p class="note">EXIF times are the most accurate way to sort a frame: they are corrected by the clock offset, then classified by the Sun’s altitude.</p>';
     box.innerHTML = `<dl class="kv">
         <dt>Clock offset</dt><dd class="tnum">${clockTxt}</dd>
-        <dt>True start</dt><dd class="tnum">${d.start !== null ? `<b>${fmtHMS(new Date(d.start))}</b>${d.corrected ? ' (corrected)' : ''}${d.lateS !== null ? ` · ${d.lateS >= 0 ? `${(d.lateS / 60).toFixed(1)} min after` : `${(-d.lateS / 60).toFixed(1)} min before`} the planned start` : ''}` : 'enter the start time'}</dd>
-        <dt>True end</dt><dd class="tnum">${d.end !== null ? fmtHMS(new Date(d.end)) : '—'}</dd>
+        <dt>True start</dt><dd class="tnum">${d.start !== null ? `<b>${fmtHMS(new Date(d.start))}</b>${d.startCorrected ? ' (corrected)' : ''}${d.lateS !== null ? ` · ${d.lateS >= 0 ? `${(d.lateS / 60).toFixed(1)} min after` : `${(-d.lateS / 60).toFixed(1)} min before`} the planned start` : ''}` : 'enter the start time'}</dd>
+        <dt>True end</dt><dd class="tnum">${d.end !== null ? `${fmtHMS(new Date(d.end))}${d.endCorrected ? ' (corrected)' : ''}` : '—'}</dd>
         <dt>Effective interval</dt><dd class="tnum">${d.eff !== null ? `${d.eff.toFixed(3)} s (${d.shots} frames)` : '—'}</dd>
       </dl>
       ${driftWarn}${intWarn}

@@ -76,7 +76,7 @@ describe('camera clock offset', () => {
   it('migrates v1 logs (single reading) to v2 (list)', () => {
     const v1 = { ...newLog('2026-11-11'), schema: 1, clockBefore: { exif: '2026-11-11T18:12:07', actual: '2026-11-11T18:12:00' }, clockAfter: { exif: '', actual: '' } } as any;
     const v2 = migrateLog(v1);
-    expect(v2.schema).toBe(2);
+    expect(v2.schema).toBeGreaterThanOrEqual(2);
     expect(Array.isArray(v2.clockBefore)).toBe(true);
     expect(clockModel(v2).before).toBe(7);
   });
@@ -91,7 +91,7 @@ describe('frame numbers from the ACTUAL start (Stage 4 requirement)', () => {
       ...newLog('2026-11-11'),
       start: '2026-11-11T18:17:07',
       end: '2026-11-11T20:20:51',
-      timeSource: 'camera' as const,
+      timeSource: { start: 'camera' as const, end: 'camera' as const },
       clockBefore: [{ exif: '2026-11-11T18:12:07', actual: '2026-11-11T18:12:00' }],
       camera: { ...newLog('x').camera, intervalS: 16, shotsTaken: 465 },
     };
@@ -121,9 +121,40 @@ describe('frame numbers from the ACTUAL start (Stage 4 requirement)', () => {
   });
 
   it('times read from a true clock are not corrected', () => {
-    const log = { ...newLog('2026-11-11'), start: '2026-11-11T18:17:00', timeSource: 'true' as const, clockBefore: [{ exif: '2026-11-11T18:12:07', actual: '2026-11-11T18:12:00' }] };
+    const log = { ...newLog('2026-11-11'), start: '2026-11-11T18:17:00', timeSource: { start: 'true' as const, end: 'true' as const }, clockBefore: [{ exif: '2026-11-11T18:12:07', actual: '2026-11-11T18:12:00' }] };
     expect(trueStartEnd(log).start).toBe(parseKst('2026-11-11T18:17:00'));
     expect(trueStartEnd(log).corrected).toBe(false);
+  });
+
+  it('each time has its own source: a phone-clock start is not corrected, a camera-clock end is', () => {
+    const log = {
+      ...newLog('2026-11-11'),
+      start: '2026-11-11T18:17:00', // filled with "Now" from the phone
+      end: '2026-11-11T20:20:51', // read from the last frame's EXIF
+      timeSource: { start: 'phone' as const, end: 'camera' as const },
+      clockBefore: [{ exif: '2026-11-11T18:12:07', actual: '2026-11-11T18:12:00' }],
+    };
+    const r = trueStartEnd(log);
+    expect(r.start).toBe(parseKst('2026-11-11T18:17:00'));
+    expect(r.end).toBe(parseKst('2026-11-11T20:20:44'));
+    expect(r.startCorrected).toBe(false);
+    expect(r.endCorrected).toBe(true);
+  });
+
+  it('migrates a v2 single time source to one source per time', () => {
+    const v2 = { ...newLog('2026-11-11'), schema: 2, timeSource: 'true' } as any;
+    const v3 = migrateLog(v2);
+    expect(v3.schema).toBe(3);
+    expect(v3.timeSource).toEqual({ start: 'true', end: 'true' });
+    expect(migrateLog({ ...newLog('2026-11-11'), schema: 2, timeSource: undefined } as any).timeSource).toEqual({ start: 'camera', end: 'camera' });
+  });
+
+  it('writes one time-source column per time to the CSV', () => {
+    const log = { ...newLog('2026-11-11'), timeSource: { start: 'phone' as const, end: 'camera' as const } };
+    const [head, row] = logToCsv(log, {}).trim().split('\n').map((l) => l.split(','));
+    const col = (k: string) => row[head.indexOf(k)];
+    expect(col('start_time_source')).toBe('phone');
+    expect(col('end_time_source')).toBe('camera');
   });
 
   it('frameAtTime edges', () => {

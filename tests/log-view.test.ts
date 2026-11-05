@@ -203,3 +203,29 @@ describe('Log tab: export uses the log’s own night', () => {
     expect(row.start_offset_from_plan_s).toBe(String(+((t0 - own.window!.start.getTime()) / 1000).toFixed(1)));
   });
 });
+
+describe('Log tab: "Now" fills a phone-clock time', () => {
+  it('marks the field as phone time and does not apply the camera-clock offset to it', async () => {
+    const { parseKst } = await import('../src/log/fieldlog');
+    const { fmtHMS } = await import('../src/time');
+    const { el } = mount();
+    await newLog(el);
+    // Camera 30 s fast (one time.is reading).
+    typeInto(q<HTMLInputElement>(el, '[data-f="clockBefore.0.exif"]')!, '2026-11-11T18:00:30');
+    typeInto(q<HTMLInputElement>(el, '[data-f="clockBefore.0.actual"]')!, '2026-11-11T18:00:00');
+    fire(q(el, '[data-log="now"][data-target="start"]')!, 'click');
+    await sleep(700);
+
+    const [saved] = await store.listLogs();
+    expect(saved.timeSource).toMatchObject({ start: 'phone', end: 'camera' });
+    // The source is shown next to the value.
+    // (happy-dom misreports select.value for markup-selected options, so read the selected option.)
+    const shown = (f: string) => q<HTMLOptionElement>(el, `[data-f="${f}"] option[selected]`)?.value ?? 'camera';
+    expect(shown('timeSource.start')).toBe('phone');
+    expect(shown('timeSource.end')).toBe('camera');
+    // True start = the phone time as filled, not shifted by −30 s.
+    const derived = q(el, '#log-derived')!.textContent!;
+    expect(derived).toContain(fmtHMS(new Date(parseKst(saved.start)!)));
+    expect(derived).not.toContain('(corrected)');
+  });
+});

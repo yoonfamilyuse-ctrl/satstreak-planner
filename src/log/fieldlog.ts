@@ -21,8 +21,11 @@
  * `toTrueTime`; frame numbers are the fallback when per-frame EXIF times are not at hand.
  */
 
-/** v2: clockBefore/clockAfter hold several readings each (v1 had one). */
-export const LOG_SCHEMA_VERSION = 2;
+/**
+ * v2: clockBefore/clockAfter hold several readings each (v1 had one).
+ * v3: start and end each have their own time source (v2 had one for both).
+ */
+export const LOG_SCHEMA_VERSION = 3;
 
 export interface ClockCheck {
   /** EXIF DateTimeOriginal of the time.is photo, 'YYYY-MM-DDTHH:MM:SS' (camera clock, KST). */
@@ -31,7 +34,13 @@ export interface ClockCheck {
   actual: string;
 }
 
-export type TimeSource = 'camera' | 'true';
+/**
+ * Clock a logged time was read from. 'camera': the camera clock (EXIF), corrected by the measured offset.
+ * 'true': true time read by hand (e.g. time.is). 'phone': the phone's clock, filled by the "Now" button.
+ * 'true' and 'phone' are used as true time (no camera-clock correction); 'phone' records where it came from.
+ */
+export type TimeSource = 'camera' | 'true' | 'phone';
+export const TIME_SOURCES: readonly TimeSource[] = ['camera', 'true', 'phone'];
 
 export interface FieldLog {
   schema: number;
@@ -60,8 +69,8 @@ export interface FieldLog {
   /** Actual start/end of shooting, 'YYYY-MM-DDTHH:MM:SS' KST, read from `timeSource`. */
   start: string;
   end: string;
-  /** Which clock the start/end were read from (e.g. EXIF of first/last frame = camera). */
-  timeSource: TimeSource;
+  /** Which clock each of start/end was read from (e.g. EXIF of the first/last frame = camera). */
+  timeSource: { start: TimeSource; end: TimeSource };
   /** time.is readings before / after shooting (several each). */
   clockBefore: ClockCheck[];
   clockAfter: ClockCheck[];
@@ -85,19 +94,22 @@ export function newLog(date: string, now = Date.now()): FieldLog {
     notes: '',
     start: '',
     end: '',
-    timeSource: 'camera',
+    timeSource: { start: 'camera', end: 'camera' },
     clockBefore: [{ exif: '', actual: '' }],
     clockAfter: [{ exif: '', actual: '' }],
     elementSetId: null,
   };
 }
 
-/** Upgrade a stored log to the current schema (v1 → v2: single clock reading → list). */
+/** Upgrade a stored log to the current schema (v1 → v2: single clock reading → list; v2 → v3: one time source per time). */
 export function migrateLog(raw: any): FieldLog {
   const l = { ...raw };
   const list = (x: unknown): ClockCheck[] => (Array.isArray(x) ? x : x && typeof x === 'object' ? [x as ClockCheck] : [{ exif: '', actual: '' }]);
   l.clockBefore = list(l.clockBefore);
   l.clockAfter = list(l.clockAfter);
+  const src = (x: unknown): TimeSource => (TIME_SOURCES.includes(x as TimeSource) ? (x as TimeSource) : 'camera');
+  const ts = l.timeSource;
+  l.timeSource = ts && typeof ts === 'object' ? { start: src(ts.start), end: src(ts.end) } : { start: src(ts), end: src(ts) };
   l.schema = LOG_SCHEMA_VERSION;
   return l as FieldLog;
 }
@@ -186,14 +198,24 @@ export function toTrueTime(log: Pick<FieldLog, 'clockBefore' | 'clockAfter'>, ca
   return off === null ? camMs : camMs - off * 1000;
 }
 
-/** True start/end of shooting (ms), applying the clock offset if the times were read from the camera. */
-export function trueStartEnd(log: FieldLog): { start: number | null; end: number | null; corrected: boolean } {
-  const s = parseKst(log.start);
-  const e = parseKst(log.end);
-  const cam = log.timeSource === 'camera';
-  const corr = (t: number | null) => (t === null ? null : cam ? toTrueTime(log, t) : t);
+/** True start/end of shooting (ms). Each time gets the clock offset only if it was read from the camera clock. */
+export function trueStartEnd(log: Pick<FieldLog, 'start' | 'end' | 'timeSource' | 'clockBefore' | 'clockAfter'>): {
+  start: number | null;
+  end: number | null;
+  /** Start or end was corrected. */
+  corrected: boolean;
+  startCorrected: boolean;
+  endCorrected: boolean;
+} {
   const hasOffset = sideOffset(log.clockBefore) !== null || sideOffset(log.clockAfter) !== null;
-  return { start: corr(s), end: corr(e), corrected: cam && hasOffset };
+  const one = (s: string, src: TimeSource) => {
+    const t = parseKst(s);
+    const cam = src === 'camera';
+    return { t: t === null ? null : cam ? toTrueTime(log, t) : t, corrected: t !== null && cam && hasOffset };
+  };
+  const a = one(log.start, log.timeSource.start);
+  const b = one(log.end, log.timeSource.end);
+  return { start: a.t, end: b.t, corrected: a.corrected || b.corrected, startCorrected: a.corrected, endCorrected: b.corrected };
 }
 
 /** Frame being exposed at true time t (1-based), or null before the start / after the last frame. */
@@ -280,7 +302,8 @@ export function logToCsv(log: FieldLog, derived: Record<string, string | number 
     notes: log.notes,
     start_logged_kst: log.start,
     end_logged_kst: log.end,
-    time_source: log.timeSource,
+    start_time_source: log.timeSource.start,
+    end_time_source: log.timeSource.end,
     clock_before_readings: log.clockBefore.filter((c) => c.exif || c.actual).map((c) => `${c.exif}|${c.actual}`).join(' ; '),
     clock_after_readings: log.clockAfter.filter((c) => c.exif || c.actual).map((c) => `${c.exif}|${c.actual}`).join(' ; '),
     element_set_id: log.elementSetId,
