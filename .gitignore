@@ -1,3 +1,8 @@
 node_modules
 dist
 .DS_Store
+
+# impeccable runtime files (decision pages, sketches)
+.impeccable/mocks/
+.impeccable/questions/
+.impeccable/review/
