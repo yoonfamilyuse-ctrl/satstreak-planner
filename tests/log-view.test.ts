@@ -43,7 +43,10 @@ beforeEach(async () => {
   // happy-dom has no geolocation; by default the position request never answers.
   Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { getCurrentPosition: vi.fn() } });
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe('Log tab: night date field', () => {
   it('ignores a cleared date instead of saving it, and the list still renders', async () => {
@@ -118,5 +121,25 @@ describe('Log tab: saving the log that was edited', () => {
     expect(first.site.source).toBe('gps');
     expect(second.site.source).toBe('manual');
     expect(q<HTMLInputElement>(el, '[data-f="site.latitude"]')!.value).not.toBe('37.123456');
+  });
+});
+
+describe('Log tab: delete', () => {
+  it('a pending save does not bring a deleted log back', async () => {
+    const { el } = mount();
+    await newLog(el);
+    typeInto(q<HTMLInputElement>(el, '[data-f="observers"]')!, 'J. Park');
+    // The user reads the confirm dialog for longer than the save debounce; confirm() blocks the page meanwhile.
+    vi.stubGlobal('confirm', () => {
+      const t = Date.now() + 600;
+      while (Date.now() < t) {
+        /* dialog open */
+      }
+      return true;
+    });
+    fire(q(el, '[data-log="delete"]')!, 'click');
+    await sleep(800);
+    expect(await store.listLogs()).toEqual([]);
+    await until(() => el.textContent?.includes('Past logs (0)'), 3000, 'empty list');
   });
 });

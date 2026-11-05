@@ -64,6 +64,8 @@ export class LogView {
   private saveTimer = 0;
   /** Log with an edit waiting for the debounced save (saved even if the user has moved to another log). */
   private pending: FieldLog | null = null;
+  /** Ids deleted in this session: a save still in flight must not write them back. */
+  private deleted = new Set<string>();
   private status = '';
   private bound = new WeakSet<HTMLElement>();
   private loaded = false;
@@ -209,11 +211,16 @@ export class LogView {
       return this.paint();
     }
     if (act === 'delete') {
-      if (this.current && confirm('Delete this log from this device? Export it first if you need it.')) {
-        void deleteLog(this.current.id).then(() => {
-          this.current = null;
-          void this.reload();
-        });
+      const log = this.current;
+      if (log && confirm('Delete this log from this device? Export it first if you need it.')) {
+        // The debounce timer may be overdue by now (confirm() blocks): cancel it before it can re-save the log.
+        if (this.pending?.id === log.id) {
+          clearTimeout(this.saveTimer);
+          this.pending = null;
+        }
+        this.deleted.add(log.id);
+        this.current = null;
+        void deleteLog(log.id).then(() => this.reload());
       }
       return;
     }
@@ -277,7 +284,7 @@ export class LogView {
   }
 
   private async save(log: FieldLog | null = this.current) {
-    if (!log) return;
+    if (!log || this.deleted.has(log.id)) return;
     if (this.pending === log) {
       clearTimeout(this.saveTimer);
       this.pending = null;
