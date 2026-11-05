@@ -1,4 +1,5 @@
 import type { BandKey, Track } from '../sat/predict';
+import { S } from '../i18n';
 
 /**
  * All-sky chart: zenith at the centre, horizon on the rim, radius ∝ zenith distance (azimuthal equidistant).
@@ -42,7 +43,7 @@ export function skyChart(inp: SkyChartInput): string {
     .map(([t, az]) => {
       const [x, y] = skyXY(az, -9);
       const [lx, ly] = [x * 1.09, y * 1.09];
-      return `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" class="sc-label" text-anchor="middle" dominant-baseline="central">${t}</text>`;
+      return `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" class="sc-label" text-anchor="middle" dominant-baseline="central">${S().sats.compassLetters[t] ?? t}</text>`;
     })
     .join('');
   const altLabels = [30, 60]
@@ -64,17 +65,17 @@ export function skyChart(inp: SkyChartInput): string {
   let moon = '';
   if (inp.moon && inp.moon.alt > 0) {
     const [x, y] = skyXY(inp.moon.az, inp.moon.alt);
-    moon = `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="sc-moon"/><text x="${(x + 7).toFixed(1)}" y="${(y + 3).toFixed(1)}" class="sc-small">Moon</text>`;
+    moon = `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="sc-moon"/><text x="${(x + 7).toFixed(1)}" y="${(y + 3).toFixed(1)}" class="sc-small">${S().sats.moonLabel}</text>`;
   }
 
-  return `<svg class="skychart" viewBox="-118 -118 236 236" role="img" aria-label="All-sky chart: camera field of view, Moon and predicted satellite tracks">
+  return `<svg class="skychart" viewBox="-118 -118 236 236" role="img" aria-label="${S().sats.chartAria}">
     <circle r="${R}" class="sc-bg"/>${rings}${spokes}${tracks}${fov}${moon}${labels}${altLabels}
   </svg>
   <div class="sc-legend">
-    <span><i class="sw sc-tw"></i>Twilight band</span>
-    <span><i class="sw sc-dk"></i>Dark band (dashed)</span>
-    <span><i class="sw sc-ot"></i>Other times</span>
-    <span><i class="sw sc-fovsw"></i>Camera frame</span>
+    <span><i class="sw sc-tw"></i>${S().sats.legTwilight}</span>
+    <span><i class="sw sc-dk"></i>${S().sats.legDark}</span>
+    <span><i class="sw sc-ot"></i>${S().sats.legOther}</span>
+    <span><i class="sw sc-fovsw"></i>${S().sats.legFrame}</span>
   </div>
-  <p class="note">Zenith at centre, horizon on the rim, North up, <b>East left</b> (view looking up). Tracks: sunlit, above-horizon parts of satellites that cross the frame. Moon at window midpoint.</p>`;
+  <p class="note">${S().sats.chartNote}</p>`;
 }

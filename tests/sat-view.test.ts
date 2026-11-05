@@ -162,3 +162,35 @@ describe('Satellites tab: longest real object name in the crossing list (break-u
     expect(cell.innerHTML).not.toMatch(/nowrap|nw/); // the name may wrap at its spaces and hyphens
   });
 });
+
+describe('Satellites tab in Korean', () => {
+  it('ISS card and list use the glossary terms; times and frame numbers unchanged', async () => {
+    const i18n = await import('../src/i18n');
+    i18n.setLang('ko');
+    try {
+      const date = '2026-11-11';
+      const ctx = ctxFor(date);
+      const el = document.createElement('div');
+      document.body.append(el);
+      await store.putSet(meta('set', Date.now()), TEXT);
+      const view = new SatView(() => ctx);
+      view.render(el);
+      await until(() => el.textContent?.includes('고정된 궤도 요소가 없어요'), 3000, 'Korean Satellites tab');
+      const entry = Date.UTC(2026, 10, 11, 9, 48, 18);
+      const iss = { norad: 25544, regime: 'LEO', name: 'ISS (ZARYA)', epoch: entry, entry, exit: entry + 95_000, entryClipped: false, exitClipped: false, maxAlt: 70, entryAz: 200, entryAlt: 40, exitAz: 100, exitAlt: 60, band: 'twilight', magRel: -2.7, samples: [[-2.7, 1.2]], m1000: -1.3, magKey: 'iss', merged: [], train: [] };
+      const r = { objects: 1, propagationFailed: 0, mergedObjects: 0, stationMerged: 0, crossings: [iss], tracks: [], pointing: [], steps: 1, elapsedMs: 1 };
+      (view as any).result = { key: (view as any).resultKey(), setId: 'set', r, issPasses: [] };
+      view.render(el);
+      const card = el.querySelector('.iss-card.yes')!.textContent!;
+      expect(card).toContain('오늘 밤 이 화면을 지나가요');
+      expect(card).toContain('18:48:18');
+      expect(card).toContain('프레임 129–135');
+      expect(card).toContain('박명 구간');
+      expect(card).toMatch(/검출 (가능|불가)/);
+      expect(el.textContent).toContain('통과 (1)');
+      expect(el.textContent).toContain('Hainaut &amp; Williams 2020'.replace('&amp;', '&')); // citation kept
+    } finally {
+      i18n.setLang('en');
+    }
+  });
+});

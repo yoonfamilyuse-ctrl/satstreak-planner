@@ -1,19 +1,20 @@
 import type { Site } from '../config';
 import { frameAt, type NightPlan } from '../astro/schedule';
-import { compass, moonPosition } from '../astro/moon';
+import { moonPosition } from '../astro/moon';
 import { sunAltitude, sunAzAlt } from '../astro/sun';
 import { ommArrayToTleText } from '../sat/elements';
 import type { PhaseLaw } from '../sat/magnitude';
-import { evaluateDetection, MODEL_LABEL, pixelScaleDeg, type DetectionModel, type DetectionSettings, type Sample } from '../sat/detection';
+import { evaluateDetection, pixelScaleDeg, type DetectionModel, type DetectionSettings, type Sample } from '../sat/detection';
 import { CAMERA as CAMERA_SETTINGS } from '../config';
 import { CELESTRAK_ACTIVE_URL, CELESTRAK_LABEL, downloadActive, nextAllowedAt } from '../sat/celestrak';
 import { SatWorker } from '../sat/client';
 import { angularSeparation, azimuthDifference, DEFAULT_CAMERA, fieldOfView, fovOutline, makeFov, pointingGrid, type Camera } from '../sat/fov';
 import { STATION_KM, TRAIN_KM, type BandKey, type Crossing, type Pass, type PredictResult } from '../sat/predict';
 import { getNightSet, getSetText, listNightSets, listSets, lockNightSet, deleteSet, putSet, type NightSet, type SetMeta } from '../sat/store';
-import { DAY_MS, fileStamp, fmtDateTime, fmtHM, fmtHMS, fmtShortDate, kstDateString, kstNoon, todayKST } from '../time';
+import { DAY_MS, fileStamp, fmtDateTime, fmtHM, fmtHMS, kstDateString, kstNoon, todayKST } from '../time';
+import { S, shortDate as fmtShortDate } from '../i18n';
 import { skyChart } from './skychart';
-import { deg, esc } from './util';
+import { deg, dir, esc } from './util';
 
 export interface SatCtx {
   date: string;
@@ -56,7 +57,18 @@ function loadMag(): MagSettings {
 }
 const ISS = 25544;
 const LOCK_ICON = '<svg class="ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
-const BAND_LABEL: Record<BandKey, string> = { twilight: 'Twilight', dark: 'Dark', gap: 'Gap', outside: 'Margin' };
+const bandLabel = (b: BandKey) => S().sats.band[b] ?? b;
+
+/** CelesTrak module errors (English) in the current language. */
+function translateErr(msg: string): string {
+  const T = S().sats;
+  let m = msg.match(/^CelesTrak policy: next download allowed after (.+) KST\.$/);
+  if (m) return T.errPolicy(m[1]);
+  if (msg.startsWith('Could not reach CelesTrak')) return T.errOffline;
+  m = msg.match(/^CelesTrak refused the request \((.+)\)\. Not retrying/);
+  if (m) return T.errRefused(m[1]);
+  return msg;
+}
 
 export function loadCamera(): Camera {
   try {
@@ -90,6 +102,7 @@ export class SatView {
   private selectedId: string | null = null;
   private camera = loadCamera();
   private busy: string | null = null;
+  private busyProgress = false;
   private msg: { text: string; kind: 'info' | 'error' } | null = null;
   private result: { key: string; setId: string; r: PredictResult; issPasses: Pass[] } | null = null;
   private passes: { setId: string; passes: Pass[]; epoch: number; name: string; computedAt: number } | null = null;
@@ -146,7 +159,7 @@ export class SatView {
       this.sets = await listSets();
       this.nightLocks = new Map((await listNightSets()).map((n) => [n.date, n]));
     } catch (e) {
-      this.msg = { text: `Local storage (IndexedDB) unavailable: ${(e as Error).message}`, kind: 'error' };
+      this.msg = { text: S().sats.storageErr((e as Error).message), kind: 'error' };
     }
     if (!this.selectedId || !this.sets.some((s) => s.id === this.selectedId)) this.selectedId = this.sets[0]?.id ?? null;
     this.paint();
@@ -176,7 +189,7 @@ export class SatView {
   private async ensureWorkerHas(id: string) {
     if (this.worker.loaded === id) return;
     const text = await getSetText(id);
-    if (text == null) throw new Error('Element set text missing from storage');
+    if (text == null) throw new Error(S().sats.setTextMissing);
     await this.worker.call({ type: 'parse', setId: id, text });
     this.worker.loaded = id;
   }
@@ -200,21 +213,22 @@ export class SatView {
       epochMax: p.epochMax,
       failures: p.failures,
     };
-    if (!meta.loaded) throw new Error(`No usable elements in ${label} (${meta.failed} failed to parse).`);
+    if (!meta.loaded) throw new Error(S().sats.noUsable(label, meta.failed));
     await putSet(meta, text);
     this.selectedId = id;
-    this.msg = { text: `Saved: ${meta.loaded.toLocaleString()} objects loaded, ${meta.failed} failed to parse.`, kind: 'info' };
+    this.msg = { text: S().sats.savedSet(meta.loaded.toLocaleString(), meta.failed), kind: 'info' };
     await this.reloadSets();
   }
 
-  private async run(label: string, fn: () => Promise<void>) {
+  private async run(label: string, fn: () => Promise<void>, progress = false) {
     if (this.busy) return;
     this.msg = null;
+    this.busyProgress = progress;
     this.setBusy(label);
     try {
       await fn();
     } catch (e) {
-      this.msg = { text: (e as Error).message, kind: 'error' };
+      this.msg = { text: translateErr((e as Error).message), kind: 'error' };
     } finally {
       this.setBusy(null);
     }
@@ -227,23 +241,23 @@ export class SatView {
     const id = btn.dataset.id ?? this.activeId();
     switch (act) {
       case 'download':
-        return void this.run('Downloading from CelesTrak…', async () => {
+        return void this.run(S().sats.busyDownload, async () => {
           const { text, downloadedAt } = await downloadActive(this.lastCelestrak());
           await this.importText(text, 'celestrak', CELESTRAK_LABEL, downloadedAt, CELESTRAK_ACTIVE_URL);
         });
       case 'paste':
-        return void this.run('Loading pasted elements…', async () => {
+        return void this.run(S().sats.busyPaste, async () => {
           const ta = this.el!.querySelector<HTMLTextAreaElement>('#tle-paste')!;
-          if (!ta.value.trim()) throw new Error('Paste OMM JSON or TLE text first.');
+          if (!ta.value.trim()) throw new Error(S().sats.pasteFirst);
           await this.importText(ta.value, 'paste', 'Pasted text', Date.now());
           ta.value = '';
         });
       case 'lock':
-        return void this.run('Saving…', async () => {
+        return void this.run(S().sats.busySaving, async () => {
           const target = this.selectedId;
           if (!target) return;
           if (this.night && this.night.setId !== target) {
-            const ok = confirm(`${this.ctx.date} is already locked to the set from ${fmtDateTime(this.meta(this.night.setId)?.downloadedAt ?? 0)}. Re-lock it to the selected set? (The change is recorded.)`);
+            const ok = confirm(S().sats.confirmRelock(this.ctx.date, fmtDateTime(this.meta(this.night.setId)?.downloadedAt ?? 0)));
             if (!ok) return;
           }
           this.night = await lockNightSet(this.ctx.date, target);
@@ -251,10 +265,10 @@ export class SatView {
         });
       case 'export-json':
       case 'export-tle':
-        return void this.run('Preparing file…', async () => this.exportSet(id!, act === 'export-json' ? 'json' : 'tle'));
+        return void this.run(S().sats.busyFile, async () => this.exportSet(id!, act === 'export-json' ? 'json' : 'tle'));
       case 'delete':
-        return void this.run('Deleting…', async () => {
-          if (!id || !confirm('Delete this element set from this device? This cannot be undone.')) return;
+        return void this.run(S().sats.busyDelete, async () => {
+          if (!id || !confirm(S().sats.confirmDelete)) return;
           await deleteSet(id);
           if (this.worker.loaded === id) this.worker.loaded = null;
           await this.reloadSets();
@@ -262,9 +276,9 @@ export class SatView {
       case 'predict':
         return void this.predict();
       case 'passes':
-        return void this.run('Computing ISS passes…', async () => {
+        return void this.run(S().sats.busyPasses, async () => {
           const setId = this.activeId();
-          if (!setId) throw new Error('Load an element set first.');
+          if (!setId) throw new Error(S().sats.loadFirst);
           await this.ensureWorkerHas(setId);
           const start = kstNoon(todayKST()).getTime();
           const r = await this.worker.call<any>({ type: 'passes', setId, norad: ISS, options: { start, end: start + 14 * DAY_MS, site: this.ctx.site, phaseLaw: this.mag.phaseLaw } });
@@ -283,7 +297,7 @@ export class SatView {
     }
     if (t.id === 'tle-file' && t.files?.[0]) {
       const f = t.files[0];
-      void this.run(`Loading ${f.name}…`, async () => this.importText(await f.text(), 'file', f.name, Date.now()));
+      void this.run(S().sats.busyLoading(f.name), async () => this.importText(await f.text(), 'file', f.name, Date.now()));
       return;
     }
     if (t.dataset.det) {
@@ -333,10 +347,10 @@ export class SatView {
   private async exportSet(id: string, kind: 'json' | 'tle') {
     const m = this.meta(id);
     const text = await getSetText(id);
-    if (!m || text == null) throw new Error('Element set not found.');
+    if (!m || text == null) throw new Error(S().sats.setNotFound);
     const base = `elements_${this.ctx.date}_${m.source}-${fileStamp(m.downloadedAt)}KST`;
     if (kind === 'json') {
-      if (m.format !== 'omm-json') throw new Error('This set was imported as TLE text; export it as TLE.');
+      if (m.format !== 'omm-json') throw new Error(S().sats.tleOnly);
       download(`${base}_omm.json`, text, 'application/json');
       return;
     }
@@ -346,7 +360,7 @@ export class SatView {
     }
     const r = ommArrayToTleText(JSON.parse(text));
     download(`${base}.tle.txt`, r.text, 'text/plain');
-    this.msg = { text: `TLE file: ${r.written.toLocaleString()} objects written; ${r.skipped.toLocaleString()} with catalog numbers > 99999 omitted (TLE cannot hold them — they are in the OMM JSON file).`, kind: 'info' };
+    this.msg = { text: S().sats.tleWritten(r.written.toLocaleString(), r.skipped.toLocaleString()), kind: 'info' };
   }
 
   private detSettings(): DetectionSettings {
@@ -432,10 +446,10 @@ export class SatView {
     const w = this.ctx.plan.window;
     await this.refreshLock(); // never auto-lock over a lock made elsewhere (Log tab) since the last render
     const setId = this.activeId();
-    if (!w) return void (this.msg = { text: 'No shooting window on this date.', kind: 'error' }), this.paint();
-    if (!setId) return void (this.msg = { text: 'Load an element set first.', kind: 'error' }), this.paint();
+    if (!w) return void (this.msg = { text: S().sats.noWindowDate, kind: 'error' }), this.paint();
+    if (!setId) return void (this.msg = { text: S().sats.loadFirst, kind: 'error' }), this.paint();
     const key = this.resultKey();
-    await this.run('Propagating every satellite…', async () => {
+    await this.run(S().sats.busyPropagate, async () => {
       // Research record: predictions computed for tonight lock tonight's element set automatically.
       if (this.ctx.date === todayKST() && !this.night) {
         this.night = await lockNightSet(this.ctx.date, setId);
@@ -463,7 +477,7 @@ export class SatView {
         /* ISS not in this element set */
       }
       this.result = { key, setId, r: r.result, issPasses };
-    });
+    }, true);
   }
 
   // ---------------------------------------------------------------- rendering
@@ -474,7 +488,7 @@ export class SatView {
   }
 
   private message(): string {
-    const busy = this.busy ? `<div class="busy" role="status">${esc(this.busy)}${this.busy.startsWith('Propagating') ? '<div class="progress"><div id="sat-progress"></div></div>' : ''}</div>` : '';
+    const busy = this.busy ? `<div class="busy" role="status">${esc(this.busy)}${this.busyProgress ? '<div class="progress"><div id="sat-progress"></div></div>' : ''}</div>` : '';
     const m = this.msg ? `<div class="${this.msg.kind === 'error' ? 'warn' : 'info'}" role="${this.msg.kind === 'error' ? 'alert' : 'status'}">${esc(this.msg.text)}</div>` : '';
     return busy + m;
   }
@@ -486,47 +500,49 @@ export class SatView {
     const policyOk = Date.now() >= next;
     const canDownload = policyOk && !this.busy;
     const dis = this.busy ? ' disabled' : '';
+    const T = S().sats;
+    const ov = active ? T.objectsVal(active.loaded.toLocaleString(), active.failed, active.sixDigit.toLocaleString()) : [];
     const status = active
       ? `<dl class="kv">
-          <dt>Source</dt><dd>${esc(active.label)}</dd>
-          <dt>${active.source === 'celestrak' ? 'Downloaded at' : 'Imported at'}</dt><dd class="tnum"><b>${fmtDateTime(active.downloadedAt)} KST</b></dd>
-          <dt>Objects</dt><dd class="tnum"><b>${active.loaded.toLocaleString()} loaded</b> · <span class="${active.failed ? 'bad' : ''}">${active.failed} failed to parse</span> · ${active.sixDigit.toLocaleString()} with catalog no. ≥ 100000</dd>
-          <dt>Element epochs</dt><dd class="tnum">${active.epochMin ? `${fmtDateTime(active.epochMin)} → ${fmtDateTime(active.epochMax!)} KST` : '—'}</dd>
+          <dt>${T.source}</dt><dd>${esc(active.label)}</dd>
+          <dt>${active.source === 'celestrak' ? T.downloadedAt : T.importedAt}</dt><dd class="tnum"><b>${fmtDateTime(active.downloadedAt)} KST</b></dd>
+          <dt>${T.objects}</dt><dd class="tnum"><b>${ov[0]}</b> · <span class="${active.failed ? 'bad' : ''}">${ov[1]}</span> · ${ov[2]}</dd>
+          <dt>${T.epochs}</dt><dd class="tnum">${active.epochMin ? `${fmtDateTime(active.epochMin)} → ${fmtDateTime(active.epochMax!)} KST` : '—'}</dd>
         </dl>
-        ${active.failures.length ? `<details class="how"><summary>Parse failures (${active.failed})</summary><ul>${active.failures.map((f) => `<li>${esc(f.id)}: ${esc(f.reason)}</li>`).join('')}</ul></details>` : ''}`
-      : '<p>No element set yet. Download from CelesTrak or load a file.</p>';
+        ${active.failures.length ? `<details class="how"><summary>${T.parseFailures(active.failed)}</summary><ul>${active.failures.map((f) => `<li>${esc(f.id)}: ${esc(f.reason)}</li>`).join('')}</ul></details>` : ''}`
+      : `<p>${T.noSetYet}</p>`;
     const lock = this.night
-      ? `<p class="lock ok">${LOCK_ICON} ${date} is locked to the set downloaded ${fmtDateTime(this.meta(this.night.setId)?.downloadedAt ?? 0)} KST${this.night.history.length ? ` (changed ${this.night.history.length}×)` : ''}. Predictions for this night always use it.</p>`
-      : `<p class="lock">Not locked for ${date}. Lock the set you use on the night so the record is fixed (computing predictions for tonight locks it automatically).</p>`;
+      ? `<p class="lock ok">${LOCK_ICON} ${T.locked(date, fmtDateTime(this.meta(this.night.setId)?.downloadedAt ?? 0), this.night.history.length)}</p>`
+      : `<p class="lock">${T.notLocked(date)}</p>`;
     const options = this.sets
-      .map((s) => `<option value="${esc(s.id)}"${s.id === this.selectedId ? ' selected' : ''}>${fmtDateTime(s.downloadedAt)} · ${s.source} · ${s.loaded.toLocaleString()} obj</option>`)
+      .map((s) => `<option value="${esc(s.id)}"${s.id === this.selectedId ? ' selected' : ''}>${fmtDateTime(s.downloadedAt)} · ${s.source} · ${s.loaded.toLocaleString()} ${T.obj}</option>`)
       .join('');
     const lockedDates = new Map<string, string[]>();
     for (const n of this.nightLocks.values()) lockedDates.set(n.setId, [...(lockedDates.get(n.setId) ?? []), n.date]);
     const saved = this.sets
       .map((s) => {
         const nights = lockedDates.get(s.id) ?? [];
-        return `<tr><td class="tnum">${fmtDateTime(s.downloadedAt)}<div class="sec">${esc(s.source)} · ${s.loaded.toLocaleString()} obj · ${(s.bytes / 1e6).toFixed(1)} MB${nights.length ? ` · locked for ${nights.join(', ')}` : ''}</div></td>
-          <td class="r actions-cell">${s.format === 'omm-json' ? `<button data-act="export-json" data-id="${esc(s.id)}"${dis}>JSON</button>` : ''}<button data-act="export-tle" data-id="${esc(s.id)}"${dis}>TLE</button>${nights.length ? '' : `<button data-act="delete" data-id="${esc(s.id)}"${dis}>Delete</button>`}</td></tr>`;
+        return `<tr><td class="tnum">${fmtDateTime(s.downloadedAt)}<div class="sec">${esc(s.source)} · ${s.loaded.toLocaleString()} ${T.obj} · ${(s.bytes / 1e6).toFixed(1)} MB${nights.length ? T.lockedFor(nights.join(', ')) : ''}</div></td>
+          <td class="r actions-cell">${s.format === 'omm-json' ? `<button data-act="export-json" data-id="${esc(s.id)}"${dis}>JSON</button>` : ''}<button data-act="export-tle" data-id="${esc(s.id)}"${dis}>TLE</button>${nights.length ? '' : `<button data-act="delete" data-id="${esc(s.id)}"${dis}>${T.delete}</button>`}</td></tr>`;
       })
       .join('');
-    return `<section class="block"><h2>Orbital elements</h2>
+    return `<section class="block"><h2>${T.elementsTitle}</h2>
       ${status}
       <div class="btn-row">
-        <button type="button" class="primary" data-act="download"${canDownload ? '' : ' disabled'}>Download from CelesTrak</button>
-        <label class="btn file-btn">Load file…<input id="tle-file" type="file" accept=".json,.txt,.tle,.3le,application/json,text/plain"${dis}></label>
+        <button type="button" class="primary" data-act="download"${canDownload ? '' : ' disabled'}>${T.download}</button>
+        <label class="btn file-btn">${T.loadFile}<input id="tle-file" type="file" accept=".json,.txt,.tle,.3le,application/json,text/plain"${dis}></label>
       </div>
-      <p class="note">${policyOk ? 'One download per 2 h (CelesTrak policy). ~7 MB.' : `CelesTrak policy: next download after ${fmtHM(new Date(next))} KST. Use the saved set or load a file.`}</p>
-      <details class="how"><summary>Paste OMM JSON or TLE text</summary>
-        <textarea id="tle-paste" rows="5" placeholder="[ {&quot;OBJECT_NAME&quot;: …} ]  or  name / line 1 / line 2"></textarea>
-        <button type="button" data-act="paste"${dis}>Load pasted text</button>
+      <p class="note">${policyOk ? T.policyOk : T.policyWait(fmtHM(new Date(next)))}</p>
+      <details class="how"><summary>${T.pasteTitle}</summary>
+        <textarea id="tle-paste" rows="5" placeholder="${esc(T.pastePh)}"></textarea>
+        <button type="button" data-act="paste"${dis}>${T.loadPasted}</button>
       </details>
-      ${this.sets.length ? `<div class="set-pick"><label for="set-select">Set for ${date}</label><select id="set-select"${dis}>${options}</select>
-        <button type="button" data-act="lock"${dis || !this.selectedId ? ' disabled' : ''}>${this.night ? (this.night.setId === this.selectedId ? 'Locked' : 'Re-lock to this set') : 'Lock for this night'}</button></div>` : ''}
+      ${this.sets.length ? `<div class="set-pick"><label for="set-select">${T.setFor(date)}</label><select id="set-select"${dis}>${options}</select>
+        <button type="button" data-act="lock"${dis || !this.selectedId ? ' disabled' : ''}>${this.night ? (this.night.setId === this.selectedId ? T.lockedBtn : T.relock) : T.lockNight}</button></div>` : ''}
       ${this.sets.length ? lock : ''}
-      ${this.night && this.selectedId && this.night.setId !== this.selectedId ? '<p class="warn">The selected set differs from this night’s locked set. Predictions use the locked set.</p>' : ''}
-      ${this.sets.length ? `<details class="how"><summary>Saved sets (${this.sets.length}) · export for the research record</summary><table class="saved">${saved}</table>
-        <p class="note">JSON = the exact OMM data as downloaded. TLE = 3-line elements generated from the OMM for objects with catalog numbers ≤ 99999 (TLE cannot hold 6-digit numbers).</p></details>` : ''}
+      ${this.night && this.selectedId && this.night.setId !== this.selectedId ? `<p class="warn">${T.differs}</p>` : ''}
+      ${this.sets.length ? `<details class="how"><summary>${T.savedSets(this.sets.length)}</summary><table class="saved">${saved}</table>
+        <p class="note">${T.savedNote}</p></details>` : ''}
     </section>`;
   }
 
@@ -535,13 +551,14 @@ export class SatView {
     const f = fieldOfView(c);
     const input = (k: keyof Camera, label: string, step = 'any') =>
       `<label>${label}<input data-cam="${k}" inputmode="decimal" type="number" step="${step}" value="${c[k]}"></label>`;
-    return `<section class="block"><h2>Camera</h2>
+    const T = S().sats;
+    return `<section class="block"><h2>${T.cameraTitle}</h2>
       <div class="cam-grid">
-        ${input('azimuth', 'Azimuth (°)', '1')}${input('altitude', 'Altitude (°)', '1')}${input('focalLength', 'Focal length (mm)')}
-        ${input('sensorWidth', 'Sensor W (mm)')}${input('sensorHeight', 'Sensor H (mm)')}
-        <div class="fov-out"><span class="sec">Field of view (landscape)</span><b class="tnum">${f.horizontal.toFixed(1)}° × ${f.vertical.toFixed(1)}°</b><span class="sec tnum">diagonal ${f.diagonal.toFixed(1)}°</span></div>
+        ${input('azimuth', T.azimuth, '1')}${input('altitude', T.altitude, '1')}${input('focalLength', T.focal)}
+        ${input('sensorWidth', T.sensorW)}${input('sensorHeight', T.sensorH)}
+        <div class="fov-out"><span class="sec">${T.fov}</span><b class="tnum">${f.horizontal.toFixed(1)}° × ${f.vertical.toFixed(1)}°</b><span class="sec tnum">${T.diagonal(f.diagonal.toFixed(1))}</span></div>
       </div>
-      <p class="note">Azimuth from north through east (${compass(c.azimuth)}). FOV = 2·atan(sensor ÷ 2f). Frame test: gnomonic projection about the pointing direction, horizon level.</p>
+      <p class="note">${T.cameraNote(dir(c.azimuth))}</p>
     </section>`;
   }
 
@@ -553,22 +570,23 @@ export class SatView {
   private predictButton(big = false): string {
     const ready = this.activeId() && this.ctx.plan.window;
     const res = this.currentResult();
-    return `<button type="button" class="primary${big ? ' big-btn' : ''}" data-act="predict"${ready && !this.busy ? '' : ' disabled'}>${res ? 'Recompute crossings' : 'Compute crossings'}</button>`;
+    return `<button type="button" class="primary${big ? ' big-btn' : ''}" data-act="predict"${ready && !this.busy ? '' : ' disabled'}>${res ? S().sats.recompute : S().sats.compute}</button>`;
   }
 
   /** First section: the ISS answer for tonight's frame, then the band counts. */
   private tonightBlock(): string {
     const p = this.ctx.plan;
     const w = p.window;
-    const head = `<h2>In the frame · ${fmtShortDate(this.ctx.date)}</h2>`;
-    if (!w) return `<section class="block">${head}<p>No shooting window on this date.</p></section>`;
+    const T = S().sats;
+    const head = `<h2>${T.inFrame(fmtShortDate(this.ctx.date))}</h2>`;
+    if (!w) return `<section class="block">${head}<p>${T.noWindowDate}</p></section>`;
     const res = this.currentResult();
     if (!res) {
-      const need = this.activeId() ? '' : '<p class="warn">Load an element set first (Orbital elements, below).</p>';
+      const need = this.activeId() ? '' : `<p class="warn">${T.loadSetFirst}</p>`;
       return `<section class="block">${head}
-        <div class="iss-card"><span class="iss-kicker">ISS</span><p class="iss-big-line">Compute crossings to see whether the ISS crosses the frame tonight.</p></div>
+        <div class="iss-card"><span class="iss-kicker">${T.issBadge}</span><p class="iss-big-line">${T.computeIss}</p></div>
         ${need}${this.predictButton(true)}
-        <p class="note">Propagates every object at 10-s steps over ${fmtHM(w.start, p.dateStr)}–${fmtHM(w.end, p.dateStr)} KST and finds those that are above the horizon, sunlit and inside the frame. Takes ~10–40 s on a phone.</p>
+        <p class="note">${T.computeNote(fmtHM(w.start, p.dateStr), fmtHM(w.end, p.dateStr))}</p>
       </section>`;
     }
     const r = res.r;
@@ -589,18 +607,18 @@ export class SatView {
       const m = bandMin(k);
       const perH = (x: number) => (m ? ((x / m) * 60).toFixed(1) : '—');
       const line = (mdl: DetectionModel, label: string) => `<div class="det-line"><b class="tnum">${cnt(mdl)}</b> <span class="s">${label} · ${perH(cnt(mdl))}/h</span></div>`;
-      return `<div class="fact band-fact"><span class="fact-k">${BAND_LABEL[k]} band · ${m.toFixed(0)} min</span>
-        <b class="tnum">${n}</b><span class="fact-s tnum">crossings · ${perH(n)}/h</span>
-        <span class="fact-s" style="margin-top:6px">predicted detectable:</span>
-        ${line('peak', 'Peak')}${line('matched', 'Matched filter')}${line('fixed', `fixed ≤ ${this.mag.limit}`)}
-        <span class="fact-s tnum">${unknown} with unknown brightness</span></div>`;
+      return `<div class="fact band-fact"><span class="fact-k">${T.bandMin(bandLabel(k), m.toFixed(0))}</span>
+        <b class="tnum">${n}</b><span class="fact-s tnum">${T.perH(perH(n))}</span>
+        <span class="fact-s" style="margin-top:6px">${T.detectable}</span>
+        ${line('peak', T.peak)}${line('matched', T.matched)}${line('fixed', T.fixedLe(this.mag.limit))}
+        <span class="fact-s tnum">${T.unknownBright(unknown)}</span></div>`;
     };
     const m = this.meta(res.setId);
     return `<section class="block">${head}
       ${this.issTonight(r, res.issPasses)}
-      <label class="check"><input type="checkbox" id="leo-only"${this.leoOnly ? ' checked' : ''}> LEO only (period &lt; 128 min) · ${nonLeo} MEO/GEO/HEO ${this.leoOnly ? 'hidden' : 'included'}</label>
+      <label class="check"><input type="checkbox" id="leo-only"${this.leoOnly ? ' checked' : ''}> ${T.leoOnly(nonLeo, this.leoOnly)}</label>
       <div class="facts">${stat('twilight')}${stat('dark')}</div>
-      <p class="note tnum">Also ${count('gap')} between the bands and ${count('outside')} in the 5-min margins. ${r.objects.toLocaleString()} objects propagated, ${r.propagationFailed} failed (decayed / SGP4 error), ${r.mergedObjects} merged (identical element sets: docked modules/vehicles), ${r.stationMerged ?? 0} merged into a crewed station (within ${STATION_KM} km of the ISS or Tiangong while in frame), ${r.crossings.filter((c) => c.train.length).length} crossings flagged train (another crossing object within ${TRAIN_KM} km) · ${r.steps} steps · ${(r.elapsedMs / 1000).toFixed(1)} s. Elements: ${m ? fmtDateTime(m.downloadedAt) : '?'} KST.</p>
+      <p class="note tnum">${T.summary(count('gap'), count('outside'), r.objects.toLocaleString(), r.propagationFailed, r.mergedObjects, r.stationMerged ?? 0, STATION_KM, r.crossings.filter((c) => c.train.length).length, TRAIN_KM, r.steps, (r.elapsedMs / 1000).toFixed(1), m ? fmtDateTime(m.downloadedAt) : '?')}</p>
       <div class="btn-row">${this.predictButton()}</div>
     </section>`;
   }
@@ -611,6 +629,7 @@ export class SatView {
     const res = this.currentResult();
     if (!w || !res) return '';
     const r = res.r;
+    const T = S().sats;
     const keep = (x: { regime: string }) => !this.leoOnly || x.regime === 'LEO';
     const crossings = r.crossings.filter(keep);
     const tracks = r.tracks.filter(keep);
@@ -622,17 +641,17 @@ export class SatView {
       .map(
         (c: Crossing) => `<tr class="${c.band === 'twilight' || c.band === 'dark' ? c.band : ''}${c.norad === ISS ? ' iss-row' : ''}">
           <td class="t tnum">${fmtHMS(new Date(c.entry))}${c.entryClipped ? '*' : ''}<div class="sec">${fmtHMS(new Date(c.exit))}${c.exitClipped ? '*' : ''}</div></td>
-          <td>${esc(c.name)}<div class="sec tnum">${c.norad} · ${c.regime}${c.starlinkVersion ? ` · ${c.starlinkVersion === 'uncertain' || c.starlinkVersion === 'not-in-gcat' ? `<b>version ${c.starlinkVersion}</b>` : c.starlinkVersion}` : ''}${c.merged.length ? ` · +${c.merged.length} docked/visiting` : ''}${c.train.length ? ` · <b>train</b> (${c.train.length} within ${TRAIN_KM} km)` : ''}</div></td>
+          <td>${esc(c.name)}<div class="sec tnum">${c.norad} · ${c.regime}${c.starlinkVersion ? ` · ${c.starlinkVersion === 'uncertain' || c.starlinkVersion === 'not-in-gcat' ? `<b>${T.version(c.starlinkVersion)}</b>` : c.starlinkVersion}` : ''}${c.merged.length ? T.docked(c.merged.length) : ''}${c.train.length ? T.train(c.train.length, TRAIN_KM) : ''}</div></td>
           <td class="r tnum">${deg(c.maxAlt, 0)}</td>
           <td class="r tnum">${this.magCell(c)}</td>
-          <td class="r">${BAND_LABEL[c.band]}</td></tr>`,
+          <td class="r">${bandLabel(c.band)}</td></tr>`,
       )
       .join('');
-    return `<section class="block"><h2>Crossings (${crossings.length})</h2>
+    return `<section class="block"><h2>${T.crossings(crossings.length)}</h2>
       ${chart}
-      <div class="scroll-y"><table><thead><tr><th>Enter / exit (KST)</th><th>Object</th><th class="r">Max alt</th><th class="r">Mag</th><th class="r">Band</th></tr></thead><tbody>${rows}</tbody></table></div>
-      <p class="note">* already inside the frame at window start / still inside at window end. Entry/exit refined to 0.1 s; band from the Sun’s altitude at the crossing midpoint. Mag = brightest predicted magnitude in the frame (10-s samples); below it the limit that applies to this crossing and the trail length in one frame; bold = predicted detectable. “—” = no published intrinsic magnitude; “a” = assumed value. Starlink versions from GCAT; “version uncertain / not-in-gcat” = no magnitude assigned. Geostationary and GPS-type (MEO) objects barely move in 15 s and many stay in the frame for the whole window, so they are not counted as crossings by default. The CSV always contains every object, with its regime.</p>
-      <div class="btn-row"><button type="button" data-act="csv">Download CSV</button></div>
+      <div class="scroll-y"><table><thead><tr><th>${T.thEnterExit}</th><th>${T.thObject}</th><th class="r">${T.thMaxAlt}</th><th class="r">${T.thMag}</th><th class="r">${T.thBand}</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="note">${T.listNote}</p>
+      <div class="btn-row"><button type="button" data-act="csv">${T.csv}</button></div>
       ${this.magSettings()}
       ${this.pointingTable(r)}
     </section>`;
@@ -652,9 +671,10 @@ export class SatView {
     const xs = r.crossings.filter((c) => c.norad === ISS);
     const d = this.ctx.date;
     const w = this.ctx.plan.window!;
-    const pt = (p: { t: number; alt: number; az: number }) => `${fmtHMS(new Date(p.t))} ${p.alt.toFixed(0)}° ${compass(p.az)}`;
+    const T = S().sats;
+    const pt = (p: { t: number; alt: number; az: number }) => `${fmtHMS(new Date(p.t))} ${p.alt.toFixed(0)}° ${dir(p.az)}`;
     const passTxt = passes
-      .map((p) => (p.visible ? `visible ${pt(p.visible.start)} → highest ${pt(p.visible.max)} → ${pt(p.visible.end)}` : `above horizon ${fmtHM(new Date(p.rise.t), d)}–${fmtHM(new Date(p.set.t), d)} but not visible (in shadow or Sun too high)`))
+      .map((p) => (p.visible ? T.passVisible(pt(p.visible.start), pt(p.visible.max), pt(p.visible.end)) : T.passNotVisible(fmtHM(new Date(p.rise.t), d), fmtHM(new Date(p.set.t), d))))
       .join('; ');
     if (xs.length) {
       const rows = xs
@@ -663,36 +683,34 @@ export class SatView {
           const f1 = frameAt(w, new Date(c.entry));
           const f2 = frameAt(w, new Date(c.exit));
           return `<div class="iss-pass">
-            <div class="iss-times"><span><span class="fact-k">Enters</span><b class="tnum">${fmtHMS(new Date(c.entry))}</b></span><span><span class="fact-k">Exits</span><b class="tnum">${fmtHMS(new Date(c.exit))}</b></span></div>
-            <p class="iss-line tnum">${f1 !== null ? `<b>Frames ${f1}${f2 !== null && f2 !== f1 ? `–${f2}` : ''}</b> if started on time · ` : ''}${((c.exit - c.entry) / 1000).toFixed(0)} s in frame · <span class="mark-text">${BAND_LABEL[c.band]} band</span></p>
-            <p class="sec tnum">Max alt ${c.maxAlt.toFixed(0)}° · predicted mag ${det.mag === null ? '—' : det.mag.toFixed(1)}${det.trailPx !== null ? ` · trail ≈ ${det.trailPx.toFixed(0)} px per frame` : ''}${det.peak.limit !== null ? ` · Peak limit ${det.peak.limit.toFixed(1)} → ${det.peak.detectable ? 'detectable' : 'not detectable'} · Matched-filter limit ${det.matched.limit!.toFixed(1)} → ${det.matched.detectable ? 'detectable' : 'not detectable'}` : ''}</p>
+            <div class="iss-times"><span><span class="fact-k">${T.enters}</span><b class="tnum">${fmtHMS(new Date(c.entry))}</b></span><span><span class="fact-k">${T.exits}</span><b class="tnum">${fmtHMS(new Date(c.exit))}</b></span></div>
+            <p class="iss-line tnum">${f1 !== null ? `<b>${T.issFrames(f1, f2)}</b>${T.ifOnTime}` : ''}${T.inFrameS(((c.exit - c.entry) / 1000).toFixed(0))} · <span class="mark-text">${T.bandOf(bandLabel(c.band))}</span></p>
+            <p class="sec tnum">${T.issDetail(c.maxAlt.toFixed(0), det.mag === null ? '—' : det.mag.toFixed(1), det.trailPx !== null ? det.trailPx.toFixed(0) : null, det.peak.limit !== null ? T.issLims(det.peak.limit.toFixed(1), !!det.peak.detectable, det.matched.limit!.toFixed(1), !!det.matched.detectable) : null)}</p>
           </div>`;
         })
         .join('');
-      return `<div class="iss-card yes"><span class="iss-kicker">ISS</span><p class="iss-big-line">Crosses this frame tonight</p>${rows}<p class="sec">Pass: ${passTxt || '—'}</p></div>`;
+      return `<div class="iss-card yes"><span class="iss-kicker">${T.issBadge}</span><p class="iss-big-line">${T.issCrosses}</p>${rows}<p class="sec">${T.pass(passTxt || '—')}</p></div>`;
     }
-    if (passes.length) return `<div class="iss-card"><span class="iss-kicker">ISS</span><p class="iss-big-line">Does not enter this frame tonight</p><p class="sec">Pass: ${passTxt}. The ISS column in the pointing table shows the frames it does cross.</p></div>`;
-    return `<div class="iss-card"><span class="iss-kicker">ISS</span><p class="iss-big-line">No ISS pass during the shooting window</p></div>`;
+    if (passes.length) return `<div class="iss-card"><span class="iss-kicker">${T.issBadge}</span><p class="iss-big-line">${T.issNo}</p><p class="sec">${T.pass(passTxt)}. ${T.passOtherFrames}</p></div>`;
+    return `<div class="iss-card"><span class="iss-kicker">${T.issBadge}</span><p class="iss-big-line">${T.issNoPass}</p></div>`;
   }
 
   private magSettings(): string {
     const g = this.mag;
+    const T = S().sats;
     const ps = pixelScaleDeg(this.camera.sensorWidth, g.pixelsAcross, this.camera.focalLength);
-    return `<details class="how mag-settings"><summary>Brightness and detection model</summary>
+    return `<details class="how mag-settings"><summary>${T.magTitle}</summary>
       <div class="cam-grid">
-        <label>Star limit, ${CAMERA_SETTINGS.exposureS}-s frame <span class="sec">(placeholder)</span><input data-det="starLimit" type="number" step="0.5" inputmode="decimal" value="${g.starLimit}"></label>
-        <label>PSF FWHM (px)<input data-det="fwhmPx" type="number" step="0.5" min="0.5" inputmode="decimal" value="${g.fwhmPx}"></label>
-        <label>Pixels across sensor<input data-det="pixelsAcross" type="number" step="1" inputmode="numeric" value="${g.pixelsAcross}"></label>
-        <div class="fov-out"><span class="sec">Pixel scale</span><b class="tnum">${(ps * 3600).toFixed(1)}″/px</b></div>
-        <label>Fixed limit <span class="sec">(placeholder)</span><input id="limit-mag" type="number" step="0.5" inputmode="decimal" value="${g.limit}"></label>
-        <label>Bold in list<select id="det-mode">${(['peak', 'matched', 'fixed'] as DetectionModel[]).map((mdl) => `<option value="${mdl}"${g.mode === mdl ? ' selected' : ''}>${MODEL_LABEL[mdl]}</option>`).join('')}</select></label>
-        <label>Phase law<select id="phase-law"><option value="fraction"${g.phaseLaw === 'fraction' ? ' selected' : ''}>Fraction illuminated</option><option value="lambert"${g.phaseLaw === 'lambert' ? ' selected' : ''}>Diffuse (Lambert) sphere</option></select></label>
-        <label class="full">Assumed 1000-km mag for objects with no published value <input id="assumed-mag" type="number" step="0.5" inputmode="decimal" placeholder="leave blank = unknown" value="${g.assumed ?? ''}"></label>
+        <label>${T.starLimit(CAMERA_SETTINGS.exposureS)} <span class="sec">${T.placeholder}</span><input data-det="starLimit" type="number" step="0.5" inputmode="decimal" value="${g.starLimit}"></label>
+        <label>${T.fwhm}<input data-det="fwhmPx" type="number" step="0.5" min="0.5" inputmode="decimal" value="${g.fwhmPx}"></label>
+        <label>${T.pixels}<input data-det="pixelsAcross" type="number" step="1" inputmode="numeric" value="${g.pixelsAcross}"></label>
+        <div class="fov-out"><span class="sec">${T.pixScale}</span><b class="tnum">${(ps * 3600).toFixed(1)}″/px</b></div>
+        <label>${T.fixedLimit} <span class="sec">${T.placeholder}</span><input id="limit-mag" type="number" step="0.5" inputmode="decimal" value="${g.limit}"></label>
+        <label>${T.boldIn}<select id="det-mode">${(['peak', 'matched', 'fixed'] as DetectionModel[]).map((mdl) => `<option value="${mdl}"${g.mode === mdl ? ' selected' : ''}>${T.model[mdl]}</option>`).join('')}</select></label>
+        <label>${T.phaseLaw}<select id="phase-law"><option value="fraction"${g.phaseLaw === 'fraction' ? ' selected' : ''}>${T.lawFraction}</option><option value="lambert"${g.phaseLaw === 'lambert' ? ' selected' : ''}>${T.lawLambert}</option></select></label>
+        <label class="full">${T.assumed} <input id="assumed-mag" type="number" step="0.5" inputmode="decimal" placeholder="${T.assumedPh}" value="${g.assumed ?? ''}"></label>
       </div>
-      <p class="note">m = m₁₀₀₀ + 5·log₁₀(range/1000 km) − 2.5·log₁₀F(phase angle), F = 1 at 90°. m₁₀₀₀ from Mallama &amp; Cole’s compiled table (Starlink by version, OneWeb, Amazon Leo, Qianfan) and Heavens-Above (ISS); see README for every source and flag. Two trailing-loss models on the same samples, with x = trail length ÷ FWHM (trail length = angular speed × ${CAMERA_SETTINGS.exposureS} s ÷ pixel scale):
-      <b>Peak</b> m<sub>lim,sat</sub> = m<sub>lim,star</sub> − 2.5·log₁₀x (Hainaut &amp; Williams 2020, A&amp;A 636, A121, §5);
-      <b>Matched filter</b> m<sub>lim,sat</sub> = m<sub>lim,star</sub> − 1.25·log₁₀(1 + 0.67x²/(1 + 1.16x)) (Jones et al. 2018, Icarus, Eqs. 4–5, SNR trailing loss).
-      For a 500-px streak at FWHM 2 px they give losses of 6.0 and 2.7 mag. In the list: P = Peak limit, M = Matched-filter limit, ✓ = detectable. All limits (star limit ${g.starLimit}, fixed limit ${g.limit}) are <b>placeholders</b> until you calibrate them from your photos. Changing the phase law needs a recompute.</p>
+      <p class="note">${T.magNote(CAMERA_SETTINGS.exposureS, g.starLimit, g.limit)}</p>
     </details>`;
   }
 
@@ -722,34 +740,33 @@ export class SatView {
     const best = Math.max(...stats.map((x) => x.tw.all + x.dk.all));
     const bestPeak = Math.max(...stats.map((x) => x.tw.peak + x.dk.peak));
     const bestMatched = Math.max(...stats.map((x) => x.tw.matched + x.dk.matched));
+    const T = S().sats;
     const rows = stats
       .sort((a, b) => a.pc.azimuth - b.pc.azimuth || a.pc.altitude - b.pc.altitude)
       .map(({ pc, tw, dk, iss }) => {
         const cur = this.camera.azimuth === pc.azimuth && this.camera.altitude === pc.altitude;
         const ms = moonSep(pc.azimuth, pc.altitude);
-        return `<tr class="${cur ? 'cur' : ''}"><td>${compass(pc.azimuth)} <span class="sec">${pc.azimuth}°/${pc.altitude}°</span></td>
+        return `<tr class="${cur ? 'cur' : ''}"><td>${dir(pc.azimuth)} <span class="sec">${pc.azimuth}°/${pc.altitude}°</span></td>
           <td class="r tnum">${sun ? `${azimuthDifference(pc.azimuth, sun.azimuth).toFixed(0)}°` : '—'}</td>
-          <td class="r tnum">${ms === null ? '<span class="sec">down</span>' : `${ms.toFixed(0)}°`}</td>
+          <td class="r tnum">${ms === null ? `<span class="sec">${T.down}</span>` : `${ms.toFixed(0)}°`}</td>
           <td class="r tnum${tw.all + dk.all === best ? ' best' : ''}">${tw.all} / ${dk.all}</td>
           <td class="r tnum${tw.peak + dk.peak === bestPeak && bestPeak > 0 ? ' best' : ''}">${tw.peak} / ${dk.peak}</td>
           <td class="r tnum${tw.matched + dk.matched === bestMatched && bestMatched > 0 ? ' best' : ''}">${tw.matched} / ${dk.matched}</td>
           <td class="r tnum">${iss.length ? iss.map((x) => `${fmtHMS(new Date(x.start))}–${fmtHMS(new Date(x.end))}`).join('<br>') : '<span class="sec">—</span>'}</td></tr>`;
       })
       .join('');
-    return `<h3>Pointing comparison</h3>
-      <div class="scroll-x"><table class="pointing"><thead><tr><th>Az / alt</th><th class="r">Sun Δaz</th><th class="r">Moon</th><th class="r">All<div class="sec">twilight / dark</div></th><th class="r">Peak<div class="sec">twilight / dark</div></th><th class="r">Matched<div class="sec">twilight / dark</div></th><th class="r">ISS in frame<div class="sec">KST, 10-s</div></th></tr></thead><tbody>${rows}</tbody></table></div>
-      <p class="note">${this.leoOnly ? 'LEO crossings' : 'Crossings (all regimes)'} per band for the same lens pointed elsewhere (10-s resolution). Bold = highest; shaded = your current pointing if it is on this grid.
-        <b>Sun Δaz</b> = azimuth difference from the Sun at the start of the twilight band (${sun && t12 ? `Sun at ${sun.azimuth.toFixed(0)}° ${compass(sun.azimuth)}, ${fmtHM(t12)} KST` : 'n/a'}); small values look towards the residual twilight glow.
-        <b>Moon</b> = smallest angular distance from the frame centre to the Moon while it is up during the window (“down” = below the horizon all window).
-        <b>ISS in frame</b> = first–last 10-s sample with the ISS inside that frame (exact times for your chosen pointing are in the box above).
-        Keep one pointing all night so both bands are comparable.</p>`;
+    const tk = `<div class="sec">${T.twDk}</div>`;
+    return `<h3>${T.pointingTitle}</h3>
+      <div class="scroll-x"><table class="pointing"><thead><tr><th>${T.thAzAlt}</th><th class="r">${T.thSunDaz}</th><th class="r">${T.thMoon}</th><th class="r">${T.thAll}${tk}</th><th class="r">${T.thPeak}${tk}</th><th class="r">${T.thMatched}${tk}</th><th class="r">${T.thIss}<div class="sec">${T.issRes}</div></th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="note">${T.pointingNote(this.leoOnly, sun && t12 ? T.sunAt(sun.azimuth.toFixed(0), dir(sun.azimuth), fmtHM(t12)) : 'n/a')}</p>`;
   }
 
   private issCard(): string {
     const ready = this.activeId() && !this.busy;
-    const btn = `<button type="button" data-act="passes"${ready ? '' : ' disabled'}>${this.passes ? 'Recompute' : 'Find ISS passes (14 days)'}</button>`;
+    const T = S().sats;
+    const btn = `<button type="button" data-act="passes"${ready ? '' : ' disabled'}>${this.passes ? T.recomputePasses : T.findPasses}</button>`;
     if (!this.passes) {
-      return `<section class="block"><h2>ISS passes, next 14 days</h2><p class="note">Visible evening passes over the next 14 days (sunlit, highest visible altitude ≥ 30°), to choose a test night.</p><div class="btn-row">${btn}</div></section>`;
+      return `<section class="block"><h2>${T.passesTitle}</h2><p class="note">${T.passesIntro}</p><div class="btn-row">${btn}</div></section>`;
     }
     const all = this.passes.passes.filter((p) => p.visible);
     const evening = (p: Pass) => {
@@ -757,22 +774,23 @@ export class SatView {
       return h >= 12;
     };
     const shown = this.showAllPasses ? all : all.filter((p) => evening(p) && p.visible!.max.alt >= 30);
-    const pt = (x: { t: number; alt: number; az: number }) => `<span class="tnum">${fmtHMS(new Date(x.t))}</span><div class="sec tnum">${x.alt.toFixed(0)}° ${compass(x.az)}</div>`;
+    const pt = (x: { t: number; alt: number; az: number }) => `<span class="tnum">${fmtHMS(new Date(x.t))}</span><div class="sec tnum">${x.alt.toFixed(0)}° ${dir(x.az)}</div>`;
     const rows = shown
       .map((p) => {
         const v = p.visible!;
         const sun = sunAltitude(new Date(v.max.t), this.ctx.site);
-        return `<tr><td>${fmtShortDate(kstDateString(new Date(v.start.t)))}<div class="sec tnum">Sun ${sun.toFixed(0)}°</div></td><td>${pt(v.start)}</td><td>${pt(v.max)}</td><td>${pt(v.end)}</td></tr>`;
+        return `<tr><td>${fmtShortDate(kstDateString(new Date(v.start.t)))}<div class="sec tnum">${T.sunAlt(sun.toFixed(0))}</div></td><td>${pt(v.start)}</td><td>${pt(v.max)}</td><td>${pt(v.end)}</td></tr>`;
       })
       .join('');
     const ageDays = (Date.now() - this.passes.epoch) / DAY_MS;
-    return `<section class="block"><h2>ISS passes, next 14 days</h2>
-      <label class="check"><input type="checkbox" id="show-all-passes"${this.showAllPasses ? ' checked' : ''}> Show all visible passes (morning, low)</label>
-      <div class="scroll-x"><table><thead><tr><th>Date</th><th>Start</th><th>Highest</th><th>End</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No passes match.</td></tr>'}</tbody></table></div>
-      <p class="note">KST. Start/End = ISS reaches 10° altitude or leaves/enters Earth’s shadow; Highest = highest visible point (same definitions as Heavens-Above). Visible = sunlit while the Sun is below −6°. Elements epoch ${fmtDateTime(this.passes.epoch)} KST (${ageDays.toFixed(1)} d old): passes more than a few days ahead shift as the ISS reboosts, so recheck with fresh elements.</p>
+    return `<section class="block"><h2>${T.passesTitle}</h2>
+      <label class="check"><input type="checkbox" id="show-all-passes"${this.showAllPasses ? ' checked' : ''}> ${T.showAll}</label>
+      <div class="scroll-x"><table><thead><tr><th>${T.thDate}</th><th>${T.thStart}</th><th>${T.thHighest}</th><th>${T.thEnd}</th></tr></thead><tbody>${rows || `<tr><td colspan="4">${T.noPasses}</td></tr>`}</tbody></table></div>
+      <p class="note">${T.passesNote(fmtDateTime(this.passes.epoch), ageDays.toFixed(1))}</p>
       <div class="btn-row">${btn}</div>
     </section>`;
   }
+
 }
 
 /** Apparent angular speed (deg/s) at the brightest in-frame sample. */
