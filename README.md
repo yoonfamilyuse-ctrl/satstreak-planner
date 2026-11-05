@@ -346,6 +346,8 @@ Suggested citation: D. Cross, *Astronomy Engine* v2.1.19, https://github.com/cos
 
 The "Night" button switches to pure red on black and is remembered on the device. If night mode is off, the app turns it on by itself while the Sun's centre is below −6° (end of civil twilight; geometric altitude, the same astronomy-engine `SearchAltitude` method as the night plan) at the saved site, already on the first paint, with a "Switch to day mode" link. Choosing day mode is remembered until the next evening. Because the first-paint script cannot load astronomy-engine, the app stores the −6° evening and morning times for the next 16 nights (`src/autonight.ts`) and the script compares the clock with them; the very first visit at night therefore shows the paper screen for a moment. Use the ‹ › buttons to change the date at night: the phone's native date-picker popup is drawn by the OS and may be bright. Turn down screen brightness as well.
 
+**iPhone limits.** The page sets the status-bar area to black at night, but iOS draws the clock, battery and Safari's address bar itself, in white or grey, and a page cannot recolour them. For the field, also turn on an iOS red filter: Settings → Accessibility → Display & Text Size → Color Filters → Color Tint, intensity and hue at maximum (red), and add it to Accessibility Shortcut (triple-click the side button) to switch it on and off. That turns the whole screen red, including the status bar and the date picker.
+
 ## Project layout
 
 ```

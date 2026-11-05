@@ -557,8 +557,8 @@ export class LogView {
   private formHtml(): string {
     const l = this.current!;
     const num = (path: string, label: string, step = 'any', extra = '') =>
-      `<label>${label}<input data-f="${path}" data-kind="num" type="number" inputmode="${step === '1' ? 'numeric' : 'decimal'}" step="${step}" value="${get(l, path) ?? ''}" ${extra}></label>`;
-    const txt = (path: string, label: string, ph = '') => `<label class="full">${label}<input data-f="${path}" type="text" value="${esc(String(get(l, path) ?? ''))}" placeholder="${esc(ph)}"></label>`;
+      `<label>${label}<input data-f="${path}" data-kind="num" type="number" inputmode="${step === '1' ? 'numeric' : 'decimal'}" enterkeyhint="done" step="${step}" value="${get(l, path) ?? ''}" ${extra}></label>`;
+    const txt = (path: string, label: string, ph = '') => `<label class="full">${label}<input data-f="${path}" type="text" enterkeyhint="done" value="${esc(String(get(l, path) ?? ''))}" placeholder="${esc(ph)}"></label>`;
     const SRC_LABEL: Record<TimeSource, string> = { camera: 'Camera clock (EXIF)', true: 'True time (time.is)', phone: 'Phone clock (Now)' };
     const plan = this.planFor(l);
     const planned = (path: 'start' | 'end') => (plan?.window ? fmtHMS(path === 'start' ? plan.window.start : plan.window.end) : '—');
