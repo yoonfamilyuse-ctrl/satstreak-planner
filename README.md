@@ -8,7 +8,7 @@ Static site, no backend. Mobile-first, with a one-tap red-on-black **night mode*
 
 ## Run
 
-Requires Node.js ≥ 20.
+Requires Node.js ≥ 20 (CI builds with Node 24).
 
 ```bash
 npm install
