@@ -305,6 +305,41 @@ describe('co-located objects', () => {
     expect(r.crossings.map((c) => c.norad).sort()).toEqual([90001, 90002, 90003, 90004]);
   });
 
+  /** Visiting vehicles with their own element set (CelesTrak gives them an older one than the station's). */
+  const visiting = (station: any, norad = station.NORAD_CAT_ID, name = station.OBJECT_NAME) => [
+    { ...station, NORAD_CAT_ID: norad, OBJECT_NAME: name },
+    { ...station, NORAD_CAT_ID: 90100, OBJECT_NAME: 'PROGRESS-TEST', MEAN_ANOMALY: station.MEAN_ANOMALY + 0.005 }, // ≈ 0.6 km
+    { ...station, NORAD_CAT_ID: 90101, OBJECT_NAME: 'SOYUZ-TEST', MEAN_ANOMALY: station.MEAN_ANOMALY + 0.005 }, // same set as 90100
+    { ...station, NORAD_CAT_ID: 90102, OBJECT_NAME: 'FREE-FLYER', MEAN_ANOMALY: station.MEAN_ANOMALY + 0.05 }, // ≈ 6 km: not part of it
+  ];
+
+  for (const [norad, name] of [[25544, 'ISS (ZARYA)'], [48274, 'CSS (TIANHE)']] as const) {
+    it(`merges visiting vehicles that stay within 2 km of the crewed station ${name} while in frame`, () => {
+      const sats = parseElementText(JSON.stringify(visiting(iss, norad, name))).sats;
+      const r = predictCrossings(sats, { ...window, camera: { ...DEFAULT_CAMERA, azimuth: 180, altitude: 60 }, pointing: [{ ...DEFAULT_CAMERA, azimuth: 180, altitude: 60 }] });
+      expect(r.crossings.map((c) => c.norad).sort()).toEqual([norad, 90102]);
+      const st = r.crossings.find((c) => c.norad === norad)!;
+      expect(st.merged).toEqual([
+        { norad: 90100, name: 'PROGRESS-TEST', how: 'station' },
+        { norad: 90101, name: 'SOYUZ-TEST', how: 'station' },
+      ]);
+      expect(r.stationMerged).toBe(2);
+      expect(st.train).toEqual([]); // the free flyer is ≈ 6 km away
+      // The pointing comparison counts the station once too.
+      expect(r.pointing[0].runs.map((x) => x.norad).sort()).toEqual([norad, 90102]);
+      expect(r.tracks.map((t) => t.norad).sort()).toEqual([norad, 90102]);
+    });
+  }
+
+  it('does not merge by distance around objects that are not crewed stations', () => {
+    // The same geometry with no station in the set: every object is its own crossing; the close ones are a train.
+    const sats = parseElementText(JSON.stringify(visiting(iss, 90099, 'NOT-A-STATION'))).sats;
+    const r = predictCrossings(sats, { ...window, camera: { ...DEFAULT_CAMERA, azimuth: 180, altitude: 60 } });
+    expect(r.stationMerged).toBe(0);
+    expect(r.crossings.map((c) => c.norad).sort()).toEqual([90099, 90100, 90102]); // 90101 shares 90100's elements
+    expect(r.crossings.find((c) => c.norad === 90099)!.train.map((x) => x.norad)).toEqual([90100]);
+  });
+
   it('flags crossings within 2 km of another crossing object as a train', () => {
     const sats = parseElementText(JSON.stringify(train)).sats;
     const r = predictCrossings(sats, { ...window, camera: { ...DEFAULT_CAMERA, azimuth: 180, altitude: 60 } });

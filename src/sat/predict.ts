@@ -31,6 +31,14 @@ const D2R = Math.PI / 180;
  * overlap or run side by side in the photos. Only identical element sets are merged (see colocatedGroups).
  */
 export const TRAIN_KM = 2;
+/**
+ * Crewed stations: ISS (ZARYA, 25544) and Tiangong / CSS (TIANHE, 48274). Visiting vehicles can carry their own
+ * (often older) element set, different from the station's, so identical-element merging misses them. Only for
+ * these two, an object that stays within STATION_KM of the station for its whole time in frame is part of the
+ * station (one streak). No distance-based merging is done for any other object.
+ */
+export const CREWED_STATIONS: readonly number[] = [25544, 48274];
+export const STATION_KM = 2;
 const R2D = 180 / Math.PI;
 
 export type BandKey = 'twilight' | 'dark' | 'gap' | 'outside';
@@ -172,8 +180,11 @@ export interface Crossing {
   magKey: string | null;
   /** Starlink version from GCAT, if a Starlink. */
   starlinkVersion?: string;
-  /** Other catalogue objects with the identical element set (docked modules/vehicles), merged into this crossing. */
-  merged: { norad: number; name: string }[];
+  /**
+   * Other catalogue objects merged into this crossing: 'elements' = identical element set (docked modules and
+   * vehicles); 'station' = stayed within STATION_KM of this crewed station for its whole time in frame.
+   */
+  merged: { norad: number; name: string; how: 'elements' | 'station' }[];
   /**
    * Other crossing objects that come within TRAIN_KM of this one while both are in the frame (e.g. a fresh
    * launch train), with the smallest separation found (km). Empty if none. Each object still has its own crossing.
@@ -226,6 +237,8 @@ export interface PredictResult {
   propagationFailed: number;
   /** Catalogue objects merged into a representative with the identical element set (ISS modules, docked vehicles). */
   mergedObjects: number;
+  /** Catalogue objects merged into a crewed station because they stayed within STATION_KM of it in frame. */
+  stationMerged: number;
   crossings: Crossing[];
   tracks: Track[];
   pointing: PointingCount[];
@@ -378,7 +391,7 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
         m1000,
         magKey: sat.intrinsic?.key ?? null,
         starlinkVersion: sat.starlinkVersion,
-        merged: (members.get(i) ?? []).map((j) => ({ norad: sats[j].norad, name: sats[j].name })),
+        merged: (members.get(i) ?? []).map((j) => ({ norad: sats[j].norad, name: sats[j].name, how: 'elements' as const })),
         train: [],
       });
     }
@@ -391,10 +404,13 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
     }
     tracks.push({ norad: sat.norad, regime: sat.regime, band: firstBand!, segments });
   }
-  flagTrains(crossings, new Map(sats.map((s) => [s.norad, s])));
+  const byNorad = new Map(sats.map((s) => [s.norad, s]));
+  const st = mergeIntoStations(crossings, pointing, byNorad);
+  if (st.dropTracks.size) tracks.splice(0, tracks.length, ...tracks.filter((t) => !st.dropTracks.has(t.norad)));
+  flagTrains(crossings, byNorad);
   onProgress?.(1);
   crossings.sort((a, b) => a.entry - b.entry);
-  return { objects: sats.length, propagationFailed, mergedObjects: skip.size, crossings, tracks, pointing, steps: K, elapsedMs: performance.now() - t0 };
+  return { objects: sats.length, propagationFailed, mergedObjects: skip.size, stationMerged: st.merged, crossings, tracks, pointing, steps: K, elapsedMs: performance.now() - t0 };
 }
 
 /**
@@ -416,12 +432,68 @@ export function colocatedGroups(sats: SatEntry[]) {
   const members = new Map<number, number[]>();
   for (const g of groups.values()) {
     if (g.length < 2) continue;
-    const rank = (i: number) => (sats[i].norad === 25544 ? 0 : sats[i].intrinsic ? 1 : 2);
+    const rank = (i: number) => (CREWED_STATIONS.includes(sats[i].norad) ? 0 : sats[i].intrinsic ? 1 : 2);
     const rep = [...g].sort((a, b) => rank(a) - rank(b) || sats[a].norad - sats[b].norad)[0];
     members.set(rep, g.filter((i) => i !== rep));
     for (const i of g) if (i !== rep) skip.add(i);
   }
   return { skip, members };
+}
+
+function eciPos(s: SatEntry, t: number) {
+  const p = propagate(s.satrec, new Date(t))?.position as { x: number; y: number; z: number } | undefined;
+  return p && Number.isFinite(p.x) ? p : null;
+}
+
+/** True if `obj` stays within `km` of `station` (3-D, SGP4) at every second from t0 to t1 (and at both ends). */
+export function staysWithin(obj: SatEntry, station: SatEntry, t0: number, t1: number, km: number): boolean {
+  const n = Math.max(1, Math.ceil((t1 - t0) / 1000));
+  for (let k = 0; k <= n; k++) {
+    const t = t0 + ((t1 - t0) * k) / n;
+    const p = eciPos(obj, t);
+    const q = eciPos(station, t);
+    if (!p || !q || Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z) >= km) return false;
+  }
+  return true;
+}
+
+/**
+ * Fold crossings (and pointing-comparison runs) of objects that stay within STATION_KM of a crewed station for
+ * their whole time in frame into that station's overlapping crossing (run). If the station itself has no
+ * overlapping crossing (an edge case at a frame border), the object's crossing is kept. Mutates its inputs.
+ */
+export function mergeIntoStations(crossings: Crossing[], pointing: PointingCount[], byNorad: Map<number, SatEntry>) {
+  const stations = CREWED_STATIONS.map((n) => byNorad.get(n)).filter((s): s is SatEntry => !!s);
+  const merged = new Set<number>();
+  const kept = new Set<number>(); // objects with at least one crossing that was not merged
+  if (!stations.length) return { merged: 0, dropTracks: merged };
+  const near = (norad: number, t0: number, t1: number) => {
+    const o = byNorad.get(norad);
+    return o ? stations.find((s) => s.norad !== norad && staysWithin(o, s, t0, t1, STATION_KM)) ?? null : null;
+  };
+  for (let i = crossings.length - 1; i >= 0; i--) {
+    const c = crossings[i];
+    if (CREWED_STATIONS.includes(c.norad)) continue;
+    const s = near(c.norad, c.entry, c.exit);
+    const host = s && crossings.find((x) => x.norad === s.norad && x.entry <= c.exit && x.exit >= c.entry);
+    if (!host) {
+      kept.add(c.norad);
+      continue;
+    }
+    host.merged.push({ norad: c.norad, name: c.name, how: 'station' }, ...c.merged.map((m) => ({ ...m, how: 'station' as const })));
+    merged.add(c.norad);
+    for (const m of c.merged) merged.add(m.norad);
+    crossings.splice(i, 1);
+  }
+  for (const pc of pointing) {
+    pc.runs = pc.runs.filter((r) => {
+      if (CREWED_STATIONS.includes(r.norad)) return true;
+      const s = near(r.norad, r.start, r.end);
+      return !(s && pc.runs.some((x) => x.norad === s.norad && x.start <= r.end && x.end >= r.start));
+    });
+  }
+  const dropTracks = new Set([...merged].filter((n) => !kept.has(n)));
+  return { merged: merged.size, dropTracks };
 }
 
 /**
