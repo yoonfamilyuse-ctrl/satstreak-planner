@@ -2,9 +2,17 @@
  * Field log: data model and the time bookkeeping needed to sort photos into solar bands.
  *
  * Clock model. The camera clock is off by some offset: camera = true + offset (seconds; positive = camera fast).
- * It is measured by photographing a time.is screen: offset = (EXIF time of that photo) − (time shown on the screen).
- * With a measurement before and after the run, the offset at camera time t is linearly interpolated between them
- * (constant outside), which also absorbs slow clock drift. True time = camera time − offset.
+ * It is measured by photographing a time.is screen at a fast shutter speed: one reading = (EXIF DateTimeOriginal of
+ * that photo) − (time shown on the screen). Several readings are taken before and after the run; each side's offset
+ * is their MEAN (with n and min–max spread reported). If EXIF and the screen both show whole seconds, one reading is
+ * only good to about ±1 s; averaging 5–10 readings taken at different fractions of a second narrows this.
+ * The offset at camera time t is linearly interpolated between the before/after means (constant outside), which
+ * also absorbs slow drift. True time = camera time − offset.
+ *
+ * EXIF facts (CIPA DC-008-2012 / Exif 2.3): DateTimeOriginal = "the date and time when the original image data was
+ * generated … the date and time the picture was taken"; whole seconds, "YYYY:MM:DD HH:MM:SS". SubSecTimeOriginal
+ * (optional tag) records fractions of a second. The standard does not say whether a long exposure is stamped at its
+ * start or end, and we found no Sony documentation for the a7 III on either point — see README for the tests.
  *
  * Frames. With true start time T₀ and interval Δ (the camera's interval setting), frame n starts at
  * T₀ + (n − 1)·Δ. A moment t falls in frame ⌊(t − T₀)/Δ⌋ + 1 (exposure 15 s, then a 1-s gap). If the actual end
@@ -13,7 +21,8 @@
  * `toTrueTime`; frame numbers are the fallback when per-frame EXIF times are not at hand.
  */
 
-export const LOG_SCHEMA_VERSION = 1;
+/** v2: clockBefore/clockAfter hold several readings each (v1 had one). */
+export const LOG_SCHEMA_VERSION = 2;
 
 export interface ClockCheck {
   /** EXIF DateTimeOriginal of the time.is photo, 'YYYY-MM-DDTHH:MM:SS' (camera clock, KST). */
@@ -53,8 +62,9 @@ export interface FieldLog {
   end: string;
   /** Which clock the start/end were read from (e.g. EXIF of first/last frame = camera). */
   timeSource: TimeSource;
-  clockBefore: ClockCheck;
-  clockAfter: ClockCheck;
+  /** time.is readings before / after shooting (several each). */
+  clockBefore: ClockCheck[];
+  clockAfter: ClockCheck[];
   /** Element set used for this night's predictions (research record). */
   elementSetId: string | null;
 }
@@ -76,10 +86,20 @@ export function newLog(date: string, now = Date.now()): FieldLog {
     start: '',
     end: '',
     timeSource: 'camera',
-    clockBefore: { exif: '', actual: '' },
-    clockAfter: { exif: '', actual: '' },
+    clockBefore: [{ exif: '', actual: '' }],
+    clockAfter: [{ exif: '', actual: '' }],
     elementSetId: null,
   };
+}
+
+/** Upgrade a stored log to the current schema (v1 → v2: single clock reading → list). */
+export function migrateLog(raw: any): FieldLog {
+  const l = { ...raw };
+  const list = (x: unknown): ClockCheck[] => (Array.isArray(x) ? x : x && typeof x === 'object' ? [x as ClockCheck] : [{ exif: '', actual: '' }]);
+  l.clockBefore = list(l.clockBefore);
+  l.clockAfter = list(l.clockAfter);
+  l.schema = LOG_SCHEMA_VERSION;
+  return l as FieldLog;
 }
 
 /** 'YYYY-MM-DDTHH:MM[:SS]' interpreted as KST (UTC+9) → ms since epoch; null if empty/invalid. */
@@ -103,28 +123,58 @@ export function clockOffset(c: ClockCheck): number | null {
   return e === null || a === null ? null : (e - a) / 1000;
 }
 
+export interface SideOffset {
+  /** Mean offset (s) over complete readings. */
+  mean: number;
+  n: number;
+  min: number;
+  max: number;
+  /** Mean camera time of the readings (ms), used as the interpolation anchor. */
+  at: number;
+}
+
+/** Mean offset of several readings (complete ones only), or null if none. */
+export function sideOffset(list: ClockCheck[]): SideOffset | null {
+  const ok = list
+    .map((c) => ({ off: clockOffset(c), t: parseKst(c.exif) }))
+    .filter((x): x is { off: number; t: number } => x.off !== null && x.t !== null);
+  if (!ok.length) return null;
+  const offs = ok.map((x) => x.off);
+  return {
+    mean: offs.reduce((a, b) => a + b, 0) / ok.length,
+    n: ok.length,
+    min: Math.min(...offs),
+    max: Math.max(...offs),
+    at: ok.reduce((a, x) => a + x.t, 0) / ok.length,
+  };
+}
+
 export interface ClockModel {
   before: number | null;
   after: number | null;
   /** after − before (s), if both. */
   drift: number | null;
+  beforeDetail: SideOffset | null;
+  afterDetail: SideOffset | null;
 }
 
 export function clockModel(log: Pick<FieldLog, 'clockBefore' | 'clockAfter'>): ClockModel {
-  const before = clockOffset(log.clockBefore);
-  const after = clockOffset(log.clockAfter);
-  return { before, after, drift: before !== null && after !== null ? after - before : null };
+  const b = sideOffset(log.clockBefore);
+  const a = sideOffset(log.clockAfter);
+  return { before: b?.mean ?? null, after: a?.mean ?? null, drift: b && a ? a.mean - b.mean : null, beforeDetail: b, afterDetail: a };
 }
 
-/** Offset (s) at camera time `camMs`: linear between the two checks, constant outside; null if none measured. */
+/** Offset (s) at camera time `camMs`: linear between the before/after means, constant outside; null if none measured. */
 export function offsetAt(log: Pick<FieldLog, 'clockBefore' | 'clockAfter'>, camMs: number): number | null {
-  const b = clockOffset(log.clockBefore);
-  const a = clockOffset(log.clockAfter);
-  if (b === null && a === null) return null;
-  if (b === null) return a;
-  if (a === null) return b;
-  const tb = parseKst(log.clockBefore.exif)!;
-  const ta = parseKst(log.clockAfter.exif)!;
+  const B = sideOffset(log.clockBefore);
+  const A = sideOffset(log.clockAfter);
+  if (!B && !A) return null;
+  if (!B) return A!.mean;
+  if (!A) return B.mean;
+  const b = B.mean;
+  const a = A.mean;
+  const tb = B.at;
+  const ta = A.at;
   if (ta === tb || camMs <= Math.min(ta, tb)) return ta < tb ? a : b;
   if (camMs >= Math.max(ta, tb)) return ta > tb ? a : b;
   return b + ((a - b) * (camMs - tb)) / (ta - tb);
@@ -142,7 +192,7 @@ export function trueStartEnd(log: FieldLog): { start: number | null; end: number
   const e = parseKst(log.end);
   const cam = log.timeSource === 'camera';
   const corr = (t: number | null) => (t === null ? null : cam ? toTrueTime(log, t) : t);
-  const hasOffset = clockOffset(log.clockBefore) !== null || clockOffset(log.clockAfter) !== null;
+  const hasOffset = sideOffset(log.clockBefore) !== null || sideOffset(log.clockAfter) !== null;
   return { start: corr(s), end: corr(e), corrected: cam && hasOffset };
 }
 
@@ -231,10 +281,8 @@ export function logToCsv(log: FieldLog, derived: Record<string, string | number 
     start_logged_kst: log.start,
     end_logged_kst: log.end,
     time_source: log.timeSource,
-    clock_before_exif_kst: log.clockBefore.exif,
-    clock_before_actual_kst: log.clockBefore.actual,
-    clock_after_exif_kst: log.clockAfter.exif,
-    clock_after_actual_kst: log.clockAfter.actual,
+    clock_before_readings: log.clockBefore.filter((c) => c.exif || c.actual).map((c) => `${c.exif}|${c.actual}`).join(' ; '),
+    clock_after_readings: log.clockAfter.filter((c) => c.exif || c.actual).map((c) => `${c.exif}|${c.actual}`).join(' ; '),
     element_set_id: log.elementSetId,
     ...derived,
     updated_at_utc: new Date(log.updatedAt).toISOString(),

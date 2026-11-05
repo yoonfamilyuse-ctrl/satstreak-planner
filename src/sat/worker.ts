@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import { parseElementText, type SatEntry } from './elements';
-import { findPasses, predictCrossings, type PredictInput, type PassOptions } from './predict';
+import { findPasses, predictCrossings, trackPositions, type PredictInput, type PassOptions } from './predict';
+import type { Site } from '../config';
 
 /** Heavy satellite work runs here so the UI never freezes. */
 
@@ -17,7 +18,8 @@ function ensure(setId: string, text?: string) {
 export type WorkerRequest =
   | { type: 'parse'; reqId: number; setId: string; text: string }
   | { type: 'predict'; reqId: number; setId: string; text?: string; input: PredictInput }
-  | { type: 'passes'; reqId: number; setId: string; text?: string; norad: number; options: PassOptions };
+  | { type: 'passes'; reqId: number; setId: string; text?: string; norad: number; options: PassOptions }
+  | { type: 'track'; reqId: number; setId: string; text?: string; norad: number; times: number[]; site: Site };
 
 self.onmessage = (e: MessageEvent<WorkerRequest>) => {
   const m = e.data;
@@ -50,6 +52,10 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
       const sat = c.sats.find((s) => s.norad === m.norad);
       if (!sat) throw new Error(`NORAD ${m.norad} is not in this element set`);
       post({ type: 'passes', passes: findPasses(sat, m.options), epoch: sat.epoch, name: sat.name });
+    } else if (m.type === 'track') {
+      const sat = c.sats.find((s) => s.norad === m.norad);
+      if (!sat) throw new Error(`NORAD ${m.norad} is not in this element set`);
+      post({ type: 'track', points: trackPositions(sat, m.times, m.site), epoch: sat.epoch });
     }
   } catch (err) {
     post({ type: 'error', message: String((err as Error)?.message ?? err) });

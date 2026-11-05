@@ -547,3 +547,12 @@ export function findPasses(sat: SatEntry, o: PassOptions): Pass[] {
     return { rise: point(rise), culmination: point(culmT), set: point(set), visible, brightest };
   }
 }
+
+/** Topocentric position (deg) and sunlit flag of one object at given times, for timing checks. */
+export function trackPositions(sat: SatEntry, times: number[], site: Site): { t: number; az: number; alt: number; sunlit: boolean }[] {
+  const gd = observerGd(site);
+  return times.map((t) => {
+    const l = lookAt(sat.satrec, stepCtx(t), gd, true);
+    return l ? { t, az: ((l.az * R2D) % 360 + 360) % 360, alt: l.alt * R2D, sunlit: l.sunlit } : { t, az: NaN, alt: NaN, sunlit: false };
+  });
+}

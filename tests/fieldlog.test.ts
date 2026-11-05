@@ -14,6 +14,7 @@ import {
   frameAtTime,
   frameStart,
   logToCsv,
+  migrateLog,
   newLog,
   offsetAt,
   parseKst,
@@ -36,31 +37,48 @@ describe('camera clock offset', () => {
   // Camera 7 s fast before, 8 s fast after (1 s drift over the night).
   const log = {
     ...newLog('2026-11-11'),
-    clockBefore: { exif: '2026-11-11T18:12:07', actual: '2026-11-11T18:12:00' },
-    clockAfter: { exif: '2026-11-11T20:22:08', actual: '2026-11-11T20:22:00' },
+    clockBefore: [{ exif: '2026-11-11T18:12:07', actual: '2026-11-11T18:12:00' }],
+    clockAfter: [{ exif: '2026-11-11T20:22:08', actual: '2026-11-11T20:22:00' }],
   };
 
   it('offset = EXIF − time.is', () => {
-    expect(clockOffset(log.clockBefore)).toBe(7);
-    expect(clockOffset(log.clockAfter)).toBe(8);
-    expect(clockModel(log)).toEqual({ before: 7, after: 8, drift: 1 });
+    expect(clockOffset(log.clockBefore[0])).toBe(7);
+    expect(clockOffset(log.clockAfter[0])).toBe(8);
+    expect(clockModel(log)).toMatchObject({ before: 7, after: 8, drift: 1 });
     expect(clockOffset({ exif: '2026-11-11T18:12:00', actual: '' })).toBeNull();
   });
 
   it('interpolates linearly between the checks and is constant outside', () => {
-    const tb = parseKst(log.clockBefore.exif)!;
-    const ta = parseKst(log.clockAfter.exif)!;
+    const tb = parseKst(log.clockBefore[0].exif)!;
+    const ta = parseKst(log.clockAfter[0].exif)!;
     expect(offsetAt(log, tb)).toBe(7);
     expect(offsetAt(log, ta)).toBe(8);
     expect(offsetAt(log, (tb + ta) / 2)).toBeCloseTo(7.5, 9);
     expect(offsetAt(log, tb - 3_600_000)).toBe(7);
     expect(offsetAt(log, ta + 3_600_000)).toBe(8);
-    expect(offsetAt({ ...log, clockAfter: { exif: '', actual: '' } }, ta)).toBe(7);
+    expect(offsetAt({ ...log, clockAfter: [{ exif: '', actual: '' }] }, ta)).toBe(7);
     expect(offsetAt(newLog('x'), ta)).toBeNull();
   });
 
   it('converts camera time to true time', () => {
     expect(toTrueTime(log, parseKst('2026-11-11T18:12:07')!)).toBe(parseKst('2026-11-11T18:12:00'));
+  });
+
+  it('averages several readings per side and reports the spread', () => {
+    // Whole-second EXIF and screen: true offset 7.4 s shows up as 7 or 8 depending on the fraction of a second.
+    const many = [7, 8, 7, 8, 7].map((d, i) => ({ exif: `2026-11-11T18:12:${String(10 + i * 3 + d).padStart(2, '0')}`, actual: `2026-11-11T18:12:${String(10 + i * 3).padStart(2, '0')}` }));
+    const m = clockModel({ clockBefore: many, clockAfter: [{ exif: '', actual: '' }] });
+    expect(m.before).toBeCloseTo(7.4, 9);
+    expect(m.beforeDetail).toMatchObject({ n: 5, min: 7, max: 8 });
+    expect(m.after).toBeNull();
+  });
+
+  it('migrates v1 logs (single reading) to v2 (list)', () => {
+    const v1 = { ...newLog('2026-11-11'), schema: 1, clockBefore: { exif: '2026-11-11T18:12:07', actual: '2026-11-11T18:12:00' }, clockAfter: { exif: '', actual: '' } } as any;
+    const v2 = migrateLog(v1);
+    expect(v2.schema).toBe(2);
+    expect(Array.isArray(v2.clockBefore)).toBe(true);
+    expect(clockModel(v2).before).toBe(7);
   });
 });
 
@@ -74,7 +92,7 @@ describe('frame numbers from the ACTUAL start (Stage 4 requirement)', () => {
       start: '2026-11-11T18:17:07',
       end: '2026-11-11T20:20:51',
       timeSource: 'camera' as const,
-      clockBefore: { exif: '2026-11-11T18:12:07', actual: '2026-11-11T18:12:00' },
+      clockBefore: [{ exif: '2026-11-11T18:12:07', actual: '2026-11-11T18:12:00' }],
       camera: { ...newLog('x').camera, intervalS: 16, shotsTaken: 465 },
     };
     const { start, end, corrected } = trueStartEnd(log);
@@ -103,7 +121,7 @@ describe('frame numbers from the ACTUAL start (Stage 4 requirement)', () => {
   });
 
   it('times read from a true clock are not corrected', () => {
-    const log = { ...newLog('2026-11-11'), start: '2026-11-11T18:17:00', timeSource: 'true' as const, clockBefore: { exif: '2026-11-11T18:12:07', actual: '2026-11-11T18:12:00' } };
+    const log = { ...newLog('2026-11-11'), start: '2026-11-11T18:17:00', timeSource: 'true' as const, clockBefore: [{ exif: '2026-11-11T18:12:07', actual: '2026-11-11T18:12:00' }] };
     expect(trueStartEnd(log).start).toBe(parseKst('2026-11-11T18:17:00'));
     expect(trueStartEnd(log).corrected).toBe(false);
   });

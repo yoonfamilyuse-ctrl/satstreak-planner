@@ -91,6 +91,7 @@ For today and the next 13 evenings: shooting window, number of shots, Moon illum
     | GEO | 220 | 0.0001° = **0 px** (0–0.4 px) | fixed point, while the stars trail past it |
 
     GEO objects stay fixed relative to the ground, so on a tripod they are points. MEO objects make dashes only a few pixels longer than the star trails around them. Neither produces the kind of streak this project detects. Many of them also stay in the frame for the entire window, so counting them as "crossings" would add a constant offset to both bands and mask the twilight-versus-dark difference.
+- **Time step and short crossings:** objects are sampled every 10 s, so a crossing shorter than 10 s (e.g. clipping a frame corner) can fall between samples. Checked on 2026-11-11, S/60°, full catalogue (LEO), 10-s vs 2-s step: 759 vs 778 crossings. **19 (2.4 %) are missed at 10 s**: twilight band 470 vs 478 (1.7 %), dark band 54 vs 55 (1.8 %). All missed crossings spend only 1.3–9.1 s in the frame, mostly clipping the lower edge (max altitude ≈ 31°). Because this is below a few percent, the step stays at 10 s, which runs 5× faster on a phone. When matching detections to predictions, an unmatched short streak near a frame edge may be one of these.
 - **Geometric counts are upper bounds**: every sunlit object in the frame counts, however faint. Each band therefore also shows a "brighter than the limiting magnitude" count (see *Predicted brightness*).
 - **Pointing comparison:** the same computation for 8 azimuths × 45°/60°, at 10-s resolution. The project keeps **one fixed pointing for the whole night** so the two bands are comparable, so the table is for choosing that pointing. Besides the counts (all and brighter than the limit, per band), each row shows:
   - **Sun Δaz**: azimuth difference between the pointing and the Sun at the start of the twilight band (Sun at −12°; astronomy-engine). Small values look towards the residual twilight glow.
@@ -110,20 +111,22 @@ d = observer–satellite range; φ = solar phase angle (Sun–satellite–observ
 | Fraction illuminated (default) | 1 + cos φ | Mallama (2020), *The Brightness of OneWeb Satellites*, arXiv:2012.05100, §2: standard-magnitude phase adjustment "2.5·log₁₀(0.5 + 0.5 cos B)", the fraction of a sphere that is lit. Same convention as Heavens-Above's "intrinsic brightness … 50 % illuminated". |
 | Diffuse (Lambertian) sphere | (π − φ)·cos φ + sin φ | McCue, Williams & Morford (1971), *Optical characteristics of artificial satellites*, Planet. Space Sci. 19, 851–868, doi:10.1016/0032-0633(71)90137-1, as given in Romero-Colmenares et al. (2026), arXiv:2603.21859, Eq. 5 (p = 1) |
 
-**Intrinsic magnitudes m₁₀₀₀** (`src/sat/magnitude.ts`). Primary source: A. Mallama & R. E. Cole, *Satellite Constellation Magnitudes*, https://satmags.netlify.app/ (table updated 2026-08-03). This is the authors' current compilation; it supersedes some values in their earlier papers.
+**Intrinsic magnitudes m₁₀₀₀** (`src/sat/magnitude.ts`).
 
-| Objects (how identified) | m₁₀₀₀ | Table row → reference | Flag |
+> **Primary values: we use the Mallama & Cole compiled table**, A. Mallama & R. E. Cole, *Satellite Constellation Magnitudes*, https://satmags.netlify.app/ (table updated 2026-08-03). It is the authors' current compilation from MMT-9 and other observations, and it supersedes some values in their earlier papers. The **original paper value** is listed beside each row for comparison; where they differ, the table is used. The one exception is the ISS, which is not in the table.
+
+| Objects (how identified) | **m₁₀₀₀ used** (Mallama & Cole table row) | Original paper value (same group) | Flag |
 |---|---|---|---|
-| ISS (NORAD 25544) | −1.8 | Heavens-Above satellite page, "intrinsic brightness (at 1000 km distance, 50 % illuminated)" | ⚑ **STILL TO BE CONFIRMED** on heavens-above.com (satinfo.aspx?satid=25544). The value was read from a search-engine copy because the site was unreachable when checked. A team member will check it; update `INTRINSIC.iss` in `src/sat/magnitude.ts` and this row if it differs. |
-| Starlink **V1.0 Original** (GCAT: V1.0 launches L1–L7) | 5.89 | SL-V1.0 → Mallama 2021, arXiv:2111.09735 | |
-| Starlink **VisorSat** (GCAT: V1.0 launches L8 onward) | 7.21 | SL-VisorSat → Mallama 2021, arXiv:2111.09735 | |
-| Starlink **V1.5** (GCAT: Groups 2–5) | 6.34 | SL-V1.5 | ⚑ **UNPUBLISHED**: the table marks this row "**" |
-| Starlink **V2 Mini** (GCAT bus V2M) | 7.22 | SL-Mini-550 → Mallama et al. 2023, arXiv:2306.06657 | The paper's abstract gives 7.87 ± 0.09 for mitigation mode only. The 475-km shell row (7.35) is unpublished. |
-| Starlink **V2 Mini Optimized** (GCAT bus V2MO) | 7.22 | V2 Mini value | ⚑ no published value for this variant; the V2 Mini value is assumed |
-| Starlink **V2 Mini Direct-to-Cell** (GCAT bus V2MD) | 6.74 | SL-Mini-DTC → Mallama et al. 2025, arXiv:2502.03651 | That paper's abstract gives 6.47 |
-| OneWeb (ONEWEB-*) | 7.41 | OneWeb → Mallama 2022, arXiv:2203.05513 | That paper reports 7.05 (2021 data); Mallama 2020 reported 7.18. Mallama 2026 (arXiv:2604.13145) reports OneWeb dimming over time. |
-| Amazon Leo (KUIPER-*) | 6.86 | Amazon Leo → Mallama et al. 2026, arXiv:2601.07708 | |
-| Qianfan (QIANFAN-*) | 5.42 | Qianfan → Mallama et al. 2025, arXiv:2505.07194 | That paper's abstract gives 5.24 ± 0.04 |
+| ISS (NORAD 25544) | **−1.8**: Heavens-Above satellite page, "intrinsic brightness (at 1000 km distance, 50 % illuminated)" (not in the table) | — | ⚑ **STILL TO BE CONFIRMED** on heavens-above.com (satinfo.aspx?satid=25544). It was read from a search-engine copy because the site was unreachable. A team member will check it; update `INTRINSIC.iss` in `src/sat/magnitude.ts` and this row if it differs. |
+| Starlink **V1.0 Original** (GCAT: V1.0 launches L1–L7) | **5.89** (SL-V1.0*, ref [6]) | 5.89: Mallama 2021, arXiv:2111.09735, §4 | |
+| Starlink **VisorSat** (GCAT: V1.0 launches L8 onward) | **7.21** (SL-VisorSat*, ref [6]) | 7.21: Mallama 2021, arXiv:2111.09735, §4: "The mean 1000-km magnitude for VisorSats is 7.21 and that for Original satellites is 5.89" | The table's "Mags" counts for these two rows (V1.0 60,000; VisorSat 40,000) look swapped relative to the paper ("More than 60,000 VisorSat magnitudes and 40,000 Original magnitudes"). The magnitudes themselves agree. |
+| Starlink **V1.5** (GCAT: Groups 2–5) | **6.34** (SL-V1.5*) | none | ⚑ **UNPUBLISHED**: the table marks this row "**" |
+| Starlink **V2 Mini** (GCAT bus V2M) | **7.22** (SL-Mini-550*, ref [7]) | 7.87 ± 0.09: Mallama et al. 2023, arXiv:2306.06657 (abstract; brightness-mitigation mode only) | The 475-km shell row (7.35) is unpublished |
+| Starlink **V2 Mini Optimized** (GCAT bus V2MO): **4,868 objects** in the 2026-11-04 catalogue, the largest group | **7.22**, **borrowed from the V2 Mini row** | none | ⚑ **No published value for Mini Optimized; the V2 Mini value is assumed.** This assumption affects more crossings than any other; treat Mini-Opt predictions as least certain. |
+| Starlink **V2 Mini Direct-to-Cell** (GCAT bus V2MD) | **6.74** (SL-Mini-DTC, ref [1]) | 6.47: Mallama et al. 2025, arXiv:2502.03651 (abstract) | |
+| OneWeb (ONEWEB-*) | **7.41** (OneWeb, ref [5]) | 7.05: Mallama 2022, arXiv:2203.05513 (2021 data); 7.18: Mallama 2020, arXiv:2012.05100 | Mallama 2026 (arXiv:2604.13145) reports OneWeb dimming over time |
+| Amazon Leo (KUIPER-*) | **6.86** (Amazon Leo, ref [3]) | not found in the text we checked (the abstract of Mallama et al. 2026, arXiv:2601.07708, gives only the apparent mean, 6.28) | |
+| Qianfan (QIANFAN-*) | **5.42** (Qianfan, ref [4]) | 5.24 ± 0.04: Mallama et al. 2025, arXiv:2505.07194 (abstract) | |
 | Starlink V0.9, V3 | — | none found | shown as unknown |
 | Starlink with **uncertain version** (13 Transporter rideshare satellites, "TSP1/TSP2") or **not in the GCAT release** (launched after the 2026-11-01 data update) | — | — | ⚑ shown as unknown, marked "version uncertain" / "version not-in-gcat" in the crossing list and CSV. A not-in-GCAT Starlink whose CelesTrak name ends "[DTC]" gets the DTC value (flagged). |
 | **All other objects** | — | **no published generic value found** | shown as unknown ("—"). Optionally, you can type an *assumed* m₁₀₀₀ in the app; those predictions are then marked "a" and `m1000_assumed=true` in the CSV. |
@@ -252,6 +255,33 @@ One log per night, **saved in IndexedDB as you type** (status shown at the top),
 - The ZIP is written by a small built-in writer (stored entries, CRC-32; PKWARE APPNOTE §4.3), checked with `unzip -t` in the tests.
 - The log uses the element set **locked** to its night in the Satellites tab. If none is locked, the log offers to lock the most recent set.
 - CSV and JSON can also be downloaded separately.
+
+## Camera timestamps: what is known and how we test it
+
+**What the sources say**
+- **EXIF standard** (CIPA DC-008-2012, Exif 2.3, https://www.cipa.jp/std/documents/e/DC-008-2012_E.pdf): DateTimeOriginal is "the date and time when the original image data was generated. For a DSC the date and time the picture was taken are recorded", format "YYYY:MM:DD HH:MM:SS", i.e. whole seconds. **SubSecTimeOriginal** is an *optional* tag "used to record fractions of seconds for the DateTimeOriginal tag".
+- **The standard does not say whether a long exposure is stamped at its start or its end.**
+- **Sony a7 III (ILCE-7M3):** the Help Guide states only that the camera complies with "Exif Ver. 2.31". We found **no Sony documentation** on whether the a7 III writes SubSecTimeOriginal, or on which moment of a long exposure DateTimeOriginal records.
+- A DPReview forum post (thread 4307268) claims that among recent Sony bodies only the a9 II writes sub-second times. It is unverified (we could not open the thread), and it is not a citable source.
+- **Both points are therefore UNCONFIRMED, and we test them ourselves:**
+  1. *Sub-seconds:* run `exiftool -a -G1 -time:all <frame>.ARW` on one of our frames. If `SubSecTimeOriginal` appears, the camera records fractions of a second.
+  2. *Start or end:* take three photos in quick succession: A at 1/100 s, B at 15 s, C at 1/100 s. Turn **Long Exposure NR off**, because it adds a processing delay. If B's DateTimeOriginal is ≈ A's time plus 1–2 s, the camera stamps the **start**. If it is ≈ C's time minus 1–2 s, it stamps the **end**. Repeat a few times, because of the 1-s resolution.
+  3. *Confirmation on the sky:* the ISS check below.
+
+**Clock-offset readings.** Photograph time.is at a **fast shutter speed (e.g. 1/100 s)**, and take **5–10 shots before and 5–10 after** the run. With whole-second EXIF and a whole-second display, one reading is good to only about ±1 s. Readings taken at different fractions of a second average to a better estimate. The Log tab accepts any number of readings per side and uses their mean, showing n and the min–max spread.
+
+## Timing check with the ISS (2026-11-11 pass)
+The ISS crosses an S/60° frame from 18:48:18 to 18:49:53 KST (about 6–7 frames). It moves ≈ 1° s⁻¹ there, so **1 s of timing error moves a streak endpoint by ≈ 1° (~80 px)**. That makes it a sensitive check of the timestamp convention and of any remaining clock offset.
+
+1. In the **Log** tab, enter the actual start, the frame count and the time.is readings, lock that night's element set (preferably downloaded the same day: older ISS elements drift by seconds per day because of reboosts), then press **"Predict ISS positions per frame"**. For every frame containing the ISS, the table gives the predicted ISS azimuth/altitude at exposure start and end under **A (EXIF = start)** and **B (EXIF = end)**. Download the CSV.
+2. **Plate-solve** each of those frames (astrometry.net). Measure the pixel coordinates of **both ends of the ISS streak**. Skip ends cut off by the frame edge, and the frame where the ISS enters Earth's shadow (18:50:05), since that end is the shadow, not the exposure.
+3. Convert each endpoint to azimuth/altitude at the frame time (via RA/Dec from the plate solution), and compute the angular distance to the predicted start/end points under A and under B.
+4. **Interpret.** Compare by **frame number**: for the same frame number, A and B differ by 15 s, i.e. 6–15° along the track.
+   - Endpoints that match one convention within about 1° settle the convention.
+   - A **constant along-track shift** of all endpoints, identical in every frame, is a residual clock offset: offset = shift ÷ angular speed. Feed it back into the clock offset if it exceeds the time.is uncertainty.
+   - The **gap** between the end of the streak in frame n and the start in frame n+1 should be 1 s of motion (16-s interval − 15-s exposure). A different gap means the interval or exposure is not as logged.
+   - A shift that grows from frame to frame means an interval error.
+5. Record the result (convention, residual offset ± uncertainty) in the log notes and in the paper's methods section.
 
 ## Accuracy check
 

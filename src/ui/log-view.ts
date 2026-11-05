@@ -13,6 +13,7 @@ import {
   frameAtTime,
   frameStart,
   logToCsv,
+  migrateLog,
   newLog,
   parseKst,
   toTrueTime,
@@ -20,6 +21,9 @@ import {
   type FieldLog,
 } from '../log/fieldlog';
 import { makeZip } from '../log/zip';
+import { SatWorker } from '../sat/client';
+import { DEFAULT_CAMERA, inFov, makeFov } from '../sat/fov';
+import { compass } from '../astro/moon';
 import { fileStamp, fmtDateTime, fmtHM, fmtHMS, fmtShortDate } from '../time';
 import { esc } from './util';
 
@@ -61,6 +65,8 @@ export class LogView {
   private status = '';
   private bound = new WeakSet<HTMLElement>();
   private loaded = false;
+  private worker: SatWorker | null = null;
+  private issCheck: { html: string; csv: string } | null = null;
 
   constructor(private getCtx: () => LogCtx) {}
 
@@ -86,7 +92,7 @@ export class LogView {
 
   private async reload() {
     try {
-      this.logs = await listLogs();
+      this.logs = (await listLogs()).map(migrateLog);
     } catch (e) {
       this.status = `Local storage unavailable: ${(e as Error).message}`;
     }
@@ -107,6 +113,7 @@ export class LogView {
 
   private async open(log: FieldLog) {
     this.current = log;
+    this.issCheck = null;
     await this.syncElementSet(log);
     this.status = '';
     this.paint();
@@ -162,7 +169,7 @@ export class LogView {
     if (act === 'new') return void this.create();
     if (act === 'open') {
       const l = this.logs.find((x) => x.id === b.dataset.id);
-      if (l) void this.open(structuredClone(l));
+      if (l) void this.open(migrateLog(structuredClone(l)));
       return;
     }
     if (act === 'back') {
@@ -170,6 +177,15 @@ export class LogView {
       return void this.reload();
     }
     if (act === 'gps') return this.gps();
+    if (act === 'add-reading' || act === 'del-reading') {
+      const side = b.dataset.side as 'clockBefore' | 'clockAfter';
+      const list = this.current![side];
+      if (act === 'add-reading') list.push({ exif: '', actual: '' });
+      else if (list.length > 1) list.splice(Number(b.dataset.i), 1);
+      else list[0] = { exif: '', actual: '' };
+      void this.save();
+      return this.paint();
+    }
     if (act === 'now') {
       const target = b.dataset.target!;
       set(this.current, target, formatKst(Date.now()));
@@ -186,6 +202,8 @@ export class LogView {
       return;
     }
     if (act === 'zip' || act === 'csv' || act === 'json') return void this.export(act);
+    if (act === 'iss-check') return void this.runIssCheck();
+    if (act === 'iss-csv' && this.issCheck) return download(`iss_timing_${this.current!.date}.csv`, this.issCheck.csv, 'text/csv');
     if (act === 'lock-latest') {
       const log = this.current!;
       void (async () => {
@@ -257,8 +275,12 @@ export class LogView {
     const d = this.derived();
     const bf = (k: string) => d.bands.find((b) => b.key === k);
     return {
-      clock_offset_before_s: d.clock.before,
-      clock_offset_after_s: d.clock.after,
+      clock_offset_before_s: d.clock.before !== null ? +d.clock.before.toFixed(3) : null,
+      clock_offset_before_n: d.clock.beforeDetail?.n ?? null,
+      clock_offset_before_range_s: d.clock.beforeDetail ? `${d.clock.beforeDetail.min}..${d.clock.beforeDetail.max}` : null,
+      clock_offset_after_s: d.clock.after !== null ? +d.clock.after.toFixed(3) : null,
+      clock_offset_after_n: d.clock.afterDetail?.n ?? null,
+      clock_offset_after_range_s: d.clock.afterDetail ? `${d.clock.afterDetail.min}..${d.clock.afterDetail.max}` : null,
       clock_drift_s: d.clock.drift,
       true_start_kst: d.start !== null ? formatKst(d.start) : null,
       true_end_kst: d.end !== null ? formatKst(d.end) : null,
@@ -273,6 +295,87 @@ export class LogView {
       sun_minus25_kst: this.ctx.plan.sun.descending[-25] ? formatKst(this.ctx.plan.sun.descending[-25]!.getTime()) : null,
       sun_minus35_kst: this.ctx.plan.sun.descending[-35] ? formatKst(this.ctx.plan.sun.descending[-35]!.getTime()) : null,
     };
+  }
+
+  // ---------------------------------------------------------------- ISS timing check
+
+  /**
+   * Predicted ISS positions at the start and end of each exposure that contains the ISS, under both EXIF conventions:
+   *  A: DateTimeOriginal = exposure START  → frame n starts at T₀ + (n−1)·Δ
+   *  B: DateTimeOriginal = exposure END    → frame n starts at T₀ + (n−1)·Δ − t_exp
+   * (T₀ = true time of the first frame from the logged start and clock offset.) Compare with the measured streak
+   * endpoints after plate-solving (README: "Timing check with the ISS").
+   */
+  private async runIssCheck() {
+    const log = this.current!;
+    const d = this.derived();
+    const out = (html: string) => {
+      this.issCheck = { html, csv: this.issCheck?.csv ?? '' };
+      this.paintDerived();
+    };
+    if (d.start === null) return out('<p class="warn">Enter the actual start first.</p>');
+    if (!log.elementSetId) return out('<p class="warn">Lock an element set for this night first (see Export).</p>');
+    const text = await getSetText(log.elementSetId);
+    if (!text) return out('<p class="warn">Element set not found on this device.</p>');
+    out('<p class="note">Computing…</p>');
+    this.worker ??= new SatWorker();
+    const exp = log.camera.exposureS ?? 15;
+    const interval = d.interval;
+    const shots = d.shots ?? 600;
+    const site = { name: '', latitude: log.site.latitude ?? this.ctx.site.latitude, longitude: log.site.longitude ?? this.ctx.site.longitude, elevation: log.site.elevation ?? this.ctx.site.elevation };
+    const cam = { ...DEFAULT_CAMERA, azimuth: log.camera.azimuth ?? DEFAULT_CAMERA.azimuth, altitude: log.camera.altitude ?? DEFAULT_CAMERA.altitude, focalLength: log.camera.focalLength ?? DEFAULT_CAMERA.focalLength };
+    const fov = makeFov(cam);
+    // 1-s samples over the whole run (both conventions), then keep frames with the ISS sunlit inside the frame.
+    const t0 = d.start - exp * 1000;
+    const tEnd = d.start + (shots - 1) * interval * 1000 + exp * 1000;
+    const times: number[] = [];
+    for (let t = t0; t <= tEnd; t += 1000) times.push(t);
+    let r: { points: { t: number; az: number; alt: number; sunlit: boolean }[]; epoch: number };
+    try {
+      if (this.worker.loaded !== log.elementSetId) {
+        await this.worker.call({ type: 'parse', setId: log.elementSetId, text });
+        this.worker.loaded = log.elementSetId;
+      }
+      r = await this.worker.call({ type: 'track', setId: log.elementSetId, norad: 25544, times, site });
+    } catch (e) {
+      return out(`<p class="warn">${esc((e as Error).message)}</p>`);
+    }
+    const D2R = Math.PI / 180;
+    const at = (t: number) => r.points[Math.round((t - t0) / 1000)];
+    const exact = async (ts: number[]) =>
+      (await this.worker!.call<{ points: { t: number; az: number; alt: number; sunlit: boolean }[] }>({ type: 'track', setId: log.elementSetId!, norad: 25544, times: ts, site })).points;
+    const rows: string[] = [];
+    const csv: string[] = ['convention,frame,frame_start_true_kst,frame_end_true_kst,iss_az_start,iss_alt_start,iss_az_end,iss_alt_end,sunlit_start,sunlit_end'];
+    for (const conv of ['A', 'B'] as const) {
+      const shift = conv === 'A' ? 0 : -exp * 1000;
+      const frames: number[] = [];
+      for (let n = 1; n <= shots; n++) {
+        const fs = d.start + (n - 1) * interval * 1000 + shift;
+        let hit = false;
+        for (let t = fs; t <= fs + exp * 1000; t += 1000) {
+          const p = at(t);
+          if (p && p.sunlit && p.alt > 0 && inFov(fov, p.az * D2R, p.alt * D2R)) hit = true;
+        }
+        if (hit) frames.push(n);
+      }
+      for (const n of frames) {
+        const fs = d.start + (n - 1) * interval * 1000 + shift;
+        const [a, b] = await exact([fs, fs + exp * 1000]);
+        const pos = (p: typeof a) => `${p.az.toFixed(2)}° ${compass(p.az)}, ${p.alt.toFixed(2)}°${p.sunlit ? '' : ' (shadow)'}`;
+        rows.push(`<tr><td>${conv}</td><td class="r tnum">${n}</td><td class="tnum">${fmtHMS(new Date(fs))}</td><td class="tnum">${pos(a)}</td><td class="tnum">${pos(b)}</td></tr>`);
+        csv.push([conv, n, formatKst(fs), formatKst(fs + exp * 1000), a.az.toFixed(4), a.alt.toFixed(4), b.az.toFixed(4), b.alt.toFixed(4), a.sunlit, b.sunlit].join(','));
+      }
+    }
+    const meta = this.setMeta;
+    this.issCheck = {
+      csv: `# ISS predicted positions per frame, night ${log.date}; A: EXIF = exposure start, B: EXIF = exposure end; elements ${meta?.label ?? log.elementSetId} (ISS epoch ${new Date(r.epoch).toISOString()})\n` + csv.join('\n') + '\n',
+      html: rows.length
+        ? `<div class="scroll-x"><table><thead><tr><th>Conv.</th><th class="r">Frame</th><th>Exposure start (true)</th><th>ISS at start (az, alt)</th><th>ISS at end</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
+           <p class="note">A = EXIF marks the exposure start; B = EXIF marks the end (true start 15 s earlier). The ISS moves ≈ 1°/s here, so 1 s of timing error ≈ 1° along the track. ISS element epoch ${fmtDateTime(r.epoch)} KST.</p>
+           <div class="btn-row"><button type="button" class="small" data-log="iss-csv">Download ISS timing CSV</button></div>`
+        : '<p class="note">The ISS does not enter this frame during the logged run (check pointing, start time and frame count).</p>',
+    };
+    this.paintDerived();
   }
 
   // ---------------------------------------------------------------- export
@@ -413,11 +516,10 @@ export class LogView {
       <p class="note">Plan: start ${plan.window ? fmtHMS(plan.window.start) : '—'}, end ${plan.window ? fmtHMS(plan.window.end) : '—'} KST.</p>
     </section>
     <section class="card"><h2>Camera clock check (time.is)</h2>
-      <p class="note">For each time.is photo enter its EXIF time (camera clock) and the time shown on the screen in the photo. Offset = EXIF − screen.</p>
-      <h3>Before shooting</h3>
-      <div class="cam-grid">${dt('clockBefore.exif', 'EXIF time of the photo')}${dt('clockBefore.actual', 'Time shown on time.is')}</div>
-      <h3>After shooting</h3>
-      <div class="cam-grid">${dt('clockAfter.exif', 'EXIF time of the photo')}${dt('clockAfter.actual', 'Time shown on time.is')}</div>
+      <p class="note"><b>How to take the time.is photos:</b> use a <b>fast shutter speed (e.g. 1/100 s)</b> so the digits are sharp. Take <b>5–10 shots before and 5–10 after</b>, a few seconds apart, without changing the camera time settings. EXIF DateTimeOriginal has whole-second resolution (CIPA DC-008), and time.is shows whole seconds, so one reading is only good to about ±1 s. Readings taken at different fractions of a second average to a much better estimate. If your files contain <code>SubSecTimeOriginal</code> (check with <code>exiftool -time:all</code>), enter the EXIF time to the second and note the fraction in Notes.</p>
+      <p class="note">For each photo: EXIF time (camera clock) and the time shown on the screen in it. Offset = EXIF − screen; each side uses the mean.</p>
+      ${this.readingsHtml('clockBefore', 'Before shooting')}
+      ${this.readingsHtml('clockAfter', 'After shooting')}
     </section>
     <section class="card"><h2>Timing for band sorting</h2>
       <div id="log-derived"></div>
@@ -427,6 +529,10 @@ export class LogView {
         <label class="full">…or frame number<input id="conv-frame" type="number" inputmode="numeric" min="1" step="1"></label>
       </div>
       <div id="log-conv"></div>
+      <h3>ISS timing check</h3>
+      <p class="note">If the ISS crossed the frame, this lists its predicted position at the start and end of each exposure, for both EXIF conventions. Use it with the README procedure to confirm the convention and any leftover clock offset.</p>
+      <div class="btn-row"><button type="button" data-log="iss-check">Predict ISS positions per frame</button></div>
+      <div id="log-iss"></div>
     </section>
     <section class="card"><h2>Export</h2>
       <p class="note">${l.elementSetId ? `Element set: ${this.setMeta ? `${esc(this.setMeta.label)}, downloaded ${fmtDateTime(this.setMeta.downloadedAt)} KST` : esc(l.elementSetId)}` : `<b>No element set locked for ${l.date}.</b> The export needs the elements used that night.`}</p>
@@ -435,6 +541,19 @@ export class LogView {
       <p class="note">The bundle contains the log (CSV + JSON), the night’s elements as TLE text (.txt) plus the original OMM JSON (needed for 6-digit catalog numbers), and a README.</p>
       <div class="btn-row"><button data-log="delete">Delete log</button></div>
     </section>`;
+  }
+
+  private readingsHtml(side: 'clockBefore' | 'clockAfter', title: string): string {
+    const list = this.current![side];
+    const rows = list
+      .map(
+        (c, i) => `<div class="reading"><span class="sec">#${i + 1}</span>
+          <label>EXIF<input data-f="${side}.${i}.exif" type="datetime-local" step="1" value="${esc(c.exif)}"></label>
+          <label>time.is<input data-f="${side}.${i}.actual" type="datetime-local" step="1" value="${esc(c.actual)}"></label>
+          <button type="button" class="small" data-log="del-reading" data-side="${side}" data-i="${i}" aria-label="Remove reading ${i + 1}">✕</button></div>`,
+      )
+      .join('');
+    return `<h3>${title}</h3>${rows}<div class="btn-row"><button type="button" class="small" data-log="add-reading" data-side="${side}">+ Add reading</button></div>`;
   }
 
   private paintDerived() {
@@ -448,7 +567,7 @@ export class LogView {
     const clockTxt =
       d.clock.before === null && d.clock.after === null
         ? '<b>Not measured yet.</b> Without it, camera times are used as true times.'
-        : `before ${s(d.clock.before)}, after ${s(d.clock.after)}${d.clock.drift !== null ? `, drift ${s(d.clock.drift)}` : ''} <span class="sec">(+ = camera fast)</span>`;
+        : `before ${s(d.clock.before)}${d.clock.beforeDetail ? ` <span class="sec">(n = ${d.clock.beforeDetail.n}, ${d.clock.beforeDetail.min}…${d.clock.beforeDetail.max})</span>` : ''}, after ${s(d.clock.after)}${d.clock.afterDetail ? ` <span class="sec">(n = ${d.clock.afterDetail.n}, ${d.clock.afterDetail.min}…${d.clock.afterDetail.max})</span>` : ''}${d.clock.drift !== null ? `, drift ${s(d.clock.drift)}` : ''} <span class="sec">(+ = camera fast)</span>`;
     const driftWarn = d.clock.drift !== null && Math.abs(d.clock.drift) > 2 ? '<p class="warn">Clock drift over 2 s: check both time.is photos.</p>' : '';
     const intWarn = d.eff !== null && Math.abs(d.eff - d.interval) > 0.05 ? `<p class="warn">Effective interval ${d.eff.toFixed(3)} s differs from the ${d.interval} s setting. Check the frame count and the end time; frame numbers below assume ${d.interval} s.</p>` : '';
     const bandRows = d.bands
@@ -475,6 +594,8 @@ export class LogView {
         conv += `<p class="tnum">Frame ${n}: starts ${fmtHMS(new Date(tt))} true · Sun ${sa.toFixed(2)}° at mid-exposure · <b>${BAND_NAME[bandOf(sa)]}</b></p>`;
       }
     }
+    const issBox = this.el!.querySelector<HTMLElement>('#log-iss');
+    if (issBox) issBox.innerHTML = this.issCheck?.html ?? '';
     const convBox = this.el!.querySelector<HTMLElement>('#log-conv');
     if (convBox) convBox.innerHTML = conv || '<p class="note">EXIF times are the most accurate way to sort a frame: they are corrected by the clock offset, then classified by the Sun’s altitude.</p>';
     box.innerHTML = `<dl class="kv">
