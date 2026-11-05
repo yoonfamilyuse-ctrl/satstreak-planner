@@ -88,10 +88,15 @@ const BY_VERSION: Partial<Record<StarlinkVersion, string>> = {
   // v0.9, v3: no published value. 'uncertain': version not determined from GCAT.
 };
 
-/** Starlink version from GCAT, 'not-in-gcat' for a Starlink newer than the GCAT release, or null for non-Starlink. */
+/**
+ * Starlink version from GCAT, 'not-in-gcat' for a Starlink newer than the GCAT release, or null for non-Starlink.
+ * The GCAT table is keyed by catalog number, so it is looked up first: element sets without names (2-line TLE,
+ * where the name is the catalog number) are still classified. The name only identifies Starlinks GCAT doesn't list.
+ */
 export function starlinkVersionOf(o: { norad: number; name: string }): StarlinkVersion | 'not-in-gcat' | null {
-  if (!o.name.toUpperCase().startsWith('STARLINK')) return null;
-  return starlinkVersion(o.norad) ?? 'not-in-gcat';
+  const v = starlinkVersion(o.norad);
+  if (v) return v;
+  return o.name.toUpperCase().startsWith('STARLINK') ? 'not-in-gcat' : null;
 }
 
 export interface MagObject {
@@ -105,12 +110,13 @@ export interface MagObject {
 export function intrinsicFor(o: MagObject): Intrinsic | null {
   if (o.norad === 25544) return INTRINSIC.iss;
   const name = o.name.toUpperCase();
+  // GCAT is keyed by catalog number (works without a name); see starlinkVersionOf.
+  const v = starlinkVersion(o.norad);
+  if (v) {
+    const k = BY_VERSION[v];
+    return k ? INTRINSIC[k] : null;
+  }
   if (name.startsWith('STARLINK')) {
-    const v = starlinkVersion(o.norad);
-    if (v) {
-      const k = BY_VERSION[v];
-      return k ? INTRINSIC[k] : null;
-    }
     // Not in this GCAT release (launched later): only CelesTrak's "[DTC]" name suffix identifies a version.
     return name.includes('[DTC]') ? { ...INTRINSIC['starlink-dtc'], flag: 'not in GCAT release; version from CelesTrak name "[DTC]"' } : null;
   }

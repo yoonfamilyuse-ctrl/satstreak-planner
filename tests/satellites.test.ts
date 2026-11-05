@@ -323,6 +323,23 @@ describe('Starlink versions from GCAT (per satellite)', () => {
     expect(parse(999999, 'STARLINK-99999 [DTC]')?.flag).toMatch(/not in GCAT/);
     expect(starlinkVersionOf({ norad: 25544, name: 'ISS (ZARYA)' })).toBeNull();
   });
+  it('classifies Starlinks by catalog number when the element set has no names (2-line TLE)', async () => {
+    const { starlinkVersion } = await import('../src/sat/starlink-versions');
+    const named = parseElementText(ommArrayToTleText(OMM).text).sats;
+    // Same elements without the name lines: parseTle names each object by its catalog number.
+    const twoLine = ommArrayToTleText(OMM).text.split('\n').filter((l) => /^[12] /.test(l)).join('\n');
+    const bare = parseElementText(twoLine).sats;
+    expect(bare.length).toBe(named.length);
+    const inGcat = named.filter((s) => starlinkVersion(s.norad));
+    expect(inGcat.length).toBeGreaterThanOrEqual(5);
+    for (const s of inGcat) {
+      const b = bare.find((x) => x.norad === s.norad)!;
+      expect(b.name, `${s.norad} has no name`).not.toMatch(/STARLINK/);
+      expect(b.starlinkVersion, `${s.norad} version`).toBe(s.starlinkVersion);
+      expect(b.intrinsic?.key, `${s.norad} magnitude source`).toBe(s.intrinsic?.key);
+    }
+    expect(inGcat.some((s) => s.intrinsic)).toBe(true);
+  });
 });
 
 describe('trailing-loss models (Peak: Hainaut & Williams 2020; Matched filter: Jones et al. 2018)', () => {
