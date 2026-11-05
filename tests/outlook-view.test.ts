@@ -31,4 +31,22 @@ describe('14 nights (proof sheet)', () => {
     expect(el.querySelectorAll('.ol-night.r-good')).toHaveLength(1);
     expect(el.textContent).toContain('1 good night, circled.');
   });
+
+  it('reads in Korean with the glossary terms; times and numbers unchanged', async () => {
+    const i18n = await import('../src/i18n');
+    i18n.setLang('ko');
+    try {
+      el.innerHTML = renderOutlook(nights, { state: 'ok', fetchedAt: Date.UTC(2026, 10, 5, 6) });
+      const t = el.textContent!;
+      expect(t).toContain('앞으로 14일 밤');
+      expect(t).toContain('오늘 밤');
+      expect(t).toContain('18:18–20:25'); // window of 5 Nov, KST, unchanged
+      expect(t).toContain('475장');
+      expect(t).toContain('박명 / 어두운 구간');
+      expect(t).toContain('15:00 KST');
+      expect(t).not.toMatch(/Next 14 nights|shots|Moon up/);
+    } finally {
+      i18n.setLang('en');
+    }
+  });
 });

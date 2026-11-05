@@ -1,5 +1,6 @@
 import { CRITERIA, type OutlookNight, type Rating } from '../outlook';
-import { fmtHM, fmtShortDate, kstNoon } from '../time';
+import { fmtHM, kstNoon } from '../time';
+import { dayMonth, S, shortDate as fmtShortDate, weekday } from '../i18n';
 import { cloudText, esc, moonIcon, openMeteoAttribution } from './util';
 
 export type ForecastStatus =
@@ -7,9 +8,7 @@ export type ForecastStatus =
   | { state: 'ok'; fetchedAt: number }
   | { state: 'error'; message: string; fetchedAt?: number };
 
-const RATING_LABEL: Record<Rating, string> = { good: 'Good', fair: 'Fair', poor: 'Poor', none: 'No window' };
-const WD = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', weekday: 'short' });
-const DM = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', day: 'numeric', month: 'short' });
+const ratingLabel = (r: Rating) => S().outlook.rating[r] ?? r;
 
 /**
  * 14-night outlook as a proof sheet: one row per night on a shared evening time axis. Each row's film bar spans
@@ -18,30 +17,21 @@ const DM = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', day: 'nume
  * Moon and cloud averages come from the night plans and outlook.ts.
  */
 export function renderOutlook(nights: OutlookNight[], fs: ForecastStatus): string {
-  const status =
-    fs.state === 'loading'
-      ? 'Loading cloud forecast from Open-Meteo…'
-      : fs.state === 'ok'
-        ? `Cloud forecast fetched ${fmtHM(new Date(fs.fetchedAt))} KST.`
-        : `Cloud forecast unavailable (${esc(fs.message)}). Moon data is still valid.`;
+  const O = S().outlook;
+  const status = fs.state === 'loading' ? O.loading : fs.state === 'ok' ? O.fetched(fmtHM(new Date(fs.fetchedAt))) : O.failed(esc(fs.message));
   const goodCount = nights.filter((n) => n.rating === 'good').length;
   const axis = timeAxis(nights);
   const head = `<section class="block ol-head">
-    <h2>Next 14 nights</h2>
-    <p class="note">${goodCount ? `<b>${goodCount}</b> good night${goodCount > 1 ? 's' : ''}, circled.` : 'No night meets the “good” criteria yet.'} Tap a night for its schedule.</p>
-    <div class="fc-status"><span>${status} ${openMeteoAttribution()} (CC BY 4.0)</span><button type="button" id="fc-refresh"${fs.state === 'loading' ? ' disabled' : ''}>Refresh</button></div>
+    <h2>${O.title}</h2>
+    <p class="note">${O.good(goodCount)} ${O.tap}</p>
+    <div class="fc-status"><span>${status} ${openMeteoAttribution()} (CC BY 4.0)</span><button type="button" id="fc-refresh"${fs.state === 'loading' ? ' disabled' : ''}>${O.refresh}</button></div>
   </section>`;
   const legend = `<div class="ol-legend" aria-hidden="true">
-    <span><i class="lg-film"></i>shooting window</span><span><i class="lg-band"></i>twilight / dark band</span><span><i class="lg-moon"></i>Moon up</span>
+    <span><i class="lg-film"></i>${O.legWindow}</span><span><i class="lg-band"></i>${O.legBands}</span><span><i class="lg-moon"></i>${O.legMoon}</span>
   </div>
   ${axis ? `<div class="ol-axis tnum" aria-hidden="true">${axis.ticks.map((t) => `<span style="left:${t.pct}%">${t.label}</span>`).join('')}</div>` : ''}`;
-  const criteria = `<details class="how"><summary>How nights are rated</summary>
-      <ul class="note">
-        <li><b>Moon index</b> = illuminated % × fraction of the window the Moon is above the horizon (0 = no Moon, 100 = full Moon all window). ≤ ${CRITERIA.moonNoneMax}: no Moon; ≤ ${CRITERIA.moonLowMax}: low; above: bright.</li>
-        <li><b>Cloud</b> = mean total cloud cover over the window (hourly forecast, linearly interpolated, sampled every 10 min). ≤ ${CRITERIA.cloudClearMax}%: clear; ≤ ${CRITERIA.cloudPartlyMax}%: partly; above: cloudy.</li>
-        <li><b>Good</b> = no/low Moon and clear. <b>Fair</b> = no/low Moon with partly cloudy or no forecast, or clear with a bright Moon. <b>Poor</b> = the rest.</li>
-        <li>Forecasts several days ahead are unreliable; recheck the day before.</li>
-      </ul>
+  const criteria = `<details class="how"><summary>${O.criteriaTitle}</summary>
+      <ul class="note">${O.criteria(CRITERIA.moonNoneMax, CRITERIA.moonLowMax, CRITERIA.cloudClearMax, CRITERIA.cloudPartlyMax).map((li) => `<li>${li}</li>`).join('')}</ul>
     </details>`;
   return `${head}<section class="block ol-sheet">${legend}<ol class="nights">${nights.map((n, i) => row(n, i, axis)).join('')}</ol>${criteria}</section>`;
 }
@@ -72,11 +62,11 @@ function row(n: OutlookNight, i: number, axis: Axis | null): string {
   const p = n.plan;
   const w = p.window;
   const d = p.dateStr;
-  const noon = kstNoon(d);
+  const O = S().outlook;
   const winMin = w ? Math.round(w.durationMs / 60000) : 0;
-  const moonUp = w ? (p.moon.minutesUp === 0 ? 'not up' : p.moon.minutesUp >= winMin ? `up all ${winMin} min` : `up ${p.moon.minutesUp} of ${winMin} min`) : '—';
+  const moonUp = w ? (p.moon.minutesUp === 0 ? O.notUp : p.moon.minutesUp >= winMin ? O.upAll(winMin) : O.upOf(p.moon.minutesUp, winMin)) : '—';
   const pos = (t: Date) => (axis ? ((minAfterNoon(t, d) - axis.from) / (axis.to - axis.from)) * 100 : 0);
-  let bar = '<div class="ol-bar"><span class="ol-none">Sun does not reach −35°</span></div>';
+  let bar = `<div class="ol-bar"><span class="ol-none">${O.noSun35}</span></div>`;
   if (w && axis) {
     const bands = p.bands
       .filter((b) => b.start && b.end)
@@ -99,14 +89,14 @@ function row(n: OutlookNight, i: number, axis: Axis | null): string {
   }
   const cloudBig = n.cloud ? `${Math.round(n.cloud.total)}%` : '—';
   return `<li class="ol-night r-${n.rating}">
-    <a class="ol-link" href="#${d}" aria-label="${esc(fmtShortDate(d))}: ${RATING_LABEL[n.rating]}">
-      <span class="ol-date"><b>${i === 0 ? 'Tonight' : WD.format(noon)}</b><span class="tnum">${DM.format(noon)}</span></span>
+    <a class="ol-link" href="#${d}" aria-label="${esc(fmtShortDate(d))}: ${ratingLabel(n.rating)}">
+      <span class="ol-date"><b>${i === 0 ? O.tonight : weekday(d)}</b><span class="tnum">${dayMonth(d)}</span></span>
       <span class="ol-mid">
         ${bar}
-        <span class="ol-facts tnum">${w ? `${fmtHM(w.start, d)}–${fmtHM(w.end, d)} · ${w.shots} shots` : 'no window'}</span>
-        <span class="ol-facts tnum"><span class="nc-ico">${moonIcon(p.moon.illuminationPct, p.moon.waxing, 16)}</span>Moon ${p.moon.illuminationPct.toFixed(0)}% · ${moonUp}${n.moonIndex !== null ? ` · index ${n.moonIndex.toFixed(0)}` : ''}</span>
+        <span class="ol-facts tnum">${w ? O.windowShots(fmtHM(w.start, d), fmtHM(w.end, d), w.shots) : O.noWindow}</span>
+        <span class="ol-facts tnum"><span class="nc-ico">${moonIcon(p.moon.illuminationPct, p.moon.waxing, 16)}</span>${O.moon(p.moon.illuminationPct.toFixed(0), moonUp, n.moonIndex !== null ? n.moonIndex.toFixed(0) : null)}</span>
       </span>
-      <span class="ol-cloud c-${n.cloudClass}"><b class="tnum">${cloudBig}</b><span>cloud</span><span class="ol-rating">${RATING_LABEL[n.rating]}</span></span>
+      <span class="ol-cloud c-${n.cloudClass}"><b class="tnum">${cloudBig}</b><span>${O.cloud}</span><span class="ol-rating">${ratingLabel(n.rating)}</span></span>
     </a>
     ${n.cloud ? `<span class="ol-cloud-detail tnum">${cloudText(n.cloud)}</span>` : ''}
   </li>`;
