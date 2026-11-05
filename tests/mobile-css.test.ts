@@ -35,4 +35,13 @@ describe('iOS Safari: native feel', () => {
     const ungated = css.split(/@media[^{]*\(hover:\s*hover\)[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/).join('').match(/:hover/g) ?? [];
     expect(ungated).toEqual([]);
   });
+
+  it('supports Safari page zoom 200% (about 195 px wide): tabs scroll, Tonight wraps, tables and grids stack', () => {
+    const narrow = css.match(/@media \(max-width: 300px\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
+    expect(narrow).toMatch(/\.tabs \{[^}]*overflow-x: auto/);
+    expect(narrow).toMatch(/\.date-row #today \{[^}]*grid-column: 1 \/ -1/);
+    expect(narrow).toMatch(/\.now \{[^}]*grid-template-columns: 1fr/);
+    expect(narrow).toMatch(/\.block table[^{]*\{[^}]*overflow-x: auto/);
+    expect(narrow).toMatch(/\.cam-grid input[^{]*\{[^}]*min-width: 0/);
+  });
 });

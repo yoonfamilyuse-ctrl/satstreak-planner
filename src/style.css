@@ -532,3 +532,32 @@ button:active:not(:disabled) { transform: scale(0.97); }
 html { scroll-padding-top: calc(env(safe-area-inset-top) + 72px); }
 h1, h2, h3, .iss-big-line, .ns-what b { text-wrap: balance; }
 .note, .warn, p { text-wrap: pretty; }
+
+/* ---------- very narrow layouts (Safari page zoom 200% on a 390-px phone ≈ 195 px) ---------- */
+@media (max-width: 300px) {
+  .topbar h1 { font-size: 15px; }
+  #night-toggle { min-width: 0; padding: 0 12px; }
+  .tabs { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button { flex: none; padding: 0 12px; }
+  .date-row { grid-template-columns: 44px 1fr 44px; }
+  .date-row #today { grid-column: 1 / -1; margin: 0 0 6px; }
+  .now { grid-template-columns: 1fr; }
+  .now-big { font-size: 64px; }
+  .tl li { grid-template-columns: 1fr auto; }
+  .tl-l { grid-column: 1 / -1; grid-row: 2; }
+  .facts, .cam-grid, .iss-times, .stats { grid-template-columns: 1fr; }
+  .fact { border-right: 0 !important; padding-right: 0 !important; }
+  .block table, .card table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .ol-link { grid-template-columns: 1fr auto; }
+  .ol-mid { grid-column: 1 / -1; grid-row: 2; }
+  .ol-axis { margin: 10px 0 0; }
+  .ol-cloud-detail { margin-left: 0; }
+  .next-step { flex-wrap: wrap; }
+  .ns-when { align-items: flex-start; }
+  .log-top { flex-wrap: wrap; }
+  .autonight { flex-wrap: wrap; padding-top: 6px; padding-bottom: 6px; }
+  .cam-grid label, .reading label { min-width: 0; }
+  .cam-grid input, .cam-grid select, .reading input, .date-pick input { min-width: 0; max-width: 100%; }
+  .reading { grid-template-columns: 22px minmax(0, 1fr) 44px; }
+}
