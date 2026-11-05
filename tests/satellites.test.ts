@@ -263,3 +263,24 @@ describe('co-located objects', () => {
     expect(members.get(repIdx)?.map((i) => sats[i].norad).sort()).toEqual([25575, 26400]);
   });
 });
+
+describe('pointing geometry helpers', () => {
+  it('azimuth difference and angular separation', async () => {
+    const { azimuthDifference, angularSeparation } = await import('../src/sat/fov');
+    expect(azimuthDifference(350, 10)).toBe(20);
+    expect(azimuthDifference(90, 270)).toBe(180);
+    expect(azimuthDifference(240, 225)).toBe(15);
+    expect(angularSeparation(0, 90, 123, 0)).toBeCloseTo(90, 9);
+    expect(angularSeparation(10, 30, 10, 45)).toBeCloseTo(15, 9);
+  });
+
+  it('Sun at the start of the 2026-11-11 twilight band is in the WSW', async () => {
+    const { sunAzAlt } = await import('../src/astro/sun');
+    const { computeNight } = await import('../src/astro/schedule');
+    const p = computeNight('2026-11-11', DEFAULT_SITE);
+    const s = sunAzAlt(p.sun.descending[-12]!, DEFAULT_SITE);
+    expect(s.altitude).toBeCloseTo(-12, 2);
+    expect(s.azimuth).toBeGreaterThan(240);
+    expect(s.azimuth).toBeLessThan(260);
+  });
+});

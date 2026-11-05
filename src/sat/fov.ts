@@ -104,3 +104,17 @@ export function pointingGrid(base: Camera): Camera[] {
   for (const altitude of [45, 60]) for (let az = 0; az < 360; az += 45) out.push({ ...base, azimuth: az, altitude });
   return out;
 }
+
+/** Great-circle angle between two (azimuth, altitude) directions, degrees (spherical law of cosines). */
+export function angularSeparation(az1: number, alt1: number, az2: number, alt2: number): number {
+  const a1 = alt1 * D2R;
+  const a2 = alt2 * D2R;
+  const c = Math.sin(a1) * Math.sin(a2) + Math.cos(a1) * Math.cos(a2) * Math.cos((az1 - az2) * D2R);
+  return Math.acos(Math.max(-1, Math.min(1, c))) * R2D;
+}
+
+/** Absolute azimuth difference folded to 0–180°. */
+export function azimuthDifference(az1: number, az2: number): number {
+  const d = Math.abs((((az1 - az2) % 360) + 540) % 360 - 180);
+  return d;
+}

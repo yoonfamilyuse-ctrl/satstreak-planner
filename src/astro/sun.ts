@@ -47,3 +47,11 @@ export function sunAltitude(date: Date, site: Site): number {
   const eq = Equator(Body.Sun, date, obs, true, true);
   return Horizon(date, obs, eq.ra, eq.dec).altitude;
 }
+
+/** Sun azimuth (deg from north through east) and geometric altitude (deg) — same method as sunAltitude. */
+export function sunAzAlt(date: Date, site: Site): { azimuth: number; altitude: number } {
+  const obs = toObserver(site);
+  const eq = Equator(Body.Sun, date, obs, true, true);
+  const h = Horizon(date, obs, eq.ra, eq.dec);
+  return { azimuth: h.azimuth, altitude: h.altitude };
+}

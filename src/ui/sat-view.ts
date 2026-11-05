@@ -1,12 +1,12 @@
 import type { Site } from '../config';
 import type { NightPlan } from '../astro/schedule';
 import { compass, moonPosition } from '../astro/moon';
-import { sunAltitude } from '../astro/sun';
+import { sunAltitude, sunAzAlt } from '../astro/sun';
 import { ommArrayToTleText } from '../sat/elements';
 import type { PhaseLaw } from '../sat/magnitude';
 import { CELESTRAK_ACTIVE_URL, CELESTRAK_LABEL, downloadActive, nextAllowedAt } from '../sat/celestrak';
 import { SatWorker } from '../sat/client';
-import { DEFAULT_CAMERA, fieldOfView, fovOutline, makeFov, pointingGrid, type Camera } from '../sat/fov';
+import { angularSeparation, azimuthDifference, DEFAULT_CAMERA, fieldOfView, fovOutline, makeFov, pointingGrid, type Camera } from '../sat/fov';
 import type { BandKey, Crossing, Pass, PredictResult } from '../sat/predict';
 import { getNightSet, getSetText, listNightSets, listSets, lockNightSet, deleteSet, putSet, type NightSet, type SetMeta } from '../sat/store';
 import { DAY_MS, fileStamp, fmtDateTime, fmtHM, fmtHMS, fmtShortDate, kstDateString, kstNoon, todayKST } from '../time';
@@ -561,20 +561,37 @@ export class SatView {
       };
       return { pc, tw: c('twilight'), dk: c('dark') };
     });
+    // Twilight glow: Sun's azimuth when the twilight band starts (Sun at −12°).
+    const t12 = this.ctx.plan.sun.descending[-12];
+    const sun = t12 ? sunAzAlt(t12, this.ctx.site) : null;
+    // Moon: smallest angular distance while the Moon is above the horizon during the window (5-min samples).
+    const w = this.ctx.plan.window!;
+    const moonUp: { az: number; alt: number }[] = [];
+    for (let t = w.start.getTime(); t <= w.end.getTime(); t += 5 * 60_000) {
+      const m = moonPosition(new Date(t), this.ctx.site);
+      if (m.altitude > 0) moonUp.push({ az: m.azimuth, alt: m.altitude });
+    }
+    const moonSep = (az: number, alt: number) => (moonUp.length ? Math.min(...moonUp.map((m) => angularSeparation(az, alt, m.az, m.alt))) : null);
     const best = Math.max(...stats.map((x) => x.tw.all + x.dk.all));
     const bestBright = Math.max(...stats.map((x) => x.tw.bright + x.dk.bright));
     const rows = stats
       .sort((a, b) => a.pc.azimuth - b.pc.azimuth || a.pc.altitude - b.pc.altitude)
       .map(({ pc, tw, dk }) => {
         const cur = this.camera.azimuth === pc.azimuth && this.camera.altitude === pc.altitude;
+        const ms = moonSep(pc.azimuth, pc.altitude);
         return `<tr class="${cur ? 'cur' : ''}"><td>${compass(pc.azimuth)} <span class="sec">${pc.azimuth}°/${pc.altitude}°</span></td>
+          <td class="r tnum">${sun ? `${azimuthDifference(pc.azimuth, sun.azimuth).toFixed(0)}°` : '—'}</td>
+          <td class="r tnum">${ms === null ? '<span class="sec">down</span>' : `${ms.toFixed(0)}°`}</td>
           <td class="r tnum${tw.all + dk.all === best ? ' best' : ''}">${tw.all} / ${dk.all}</td>
           <td class="r tnum${tw.bright + dk.bright === bestBright ? ' best' : ''}">${tw.bright} / ${dk.bright}</td></tr>`;
       })
       .join('');
     return `<h3>Pointing comparison</h3>
-      <div class="scroll-x"><table class="pointing"><thead><tr><th>Az / alt</th><th class="r">All<div class="sec">twilight / dark</div></th><th class="r">≤ mag ${lim}<div class="sec">twilight / dark</div></th></tr></thead><tbody>${rows}</tbody></table></div>
-      <p class="note">${this.leoOnly ? 'LEO crossings' : 'Crossings (all regimes)'} per band for the same lens pointed elsewhere (10-s resolution). Bold = highest; outlined = your current pointing if it is on this grid.</p>`;
+      <div class="scroll-x"><table class="pointing"><thead><tr><th>Az / alt</th><th class="r">Sun Δaz</th><th class="r">Moon</th><th class="r">All<div class="sec">twilight / dark</div></th><th class="r">≤ mag ${lim}<div class="sec">twilight / dark</div></th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="note">${this.leoOnly ? 'LEO crossings' : 'Crossings (all regimes)'} per band for the same lens pointed elsewhere (10-s resolution). Bold = highest; shaded = your current pointing if it is on this grid.
+        <b>Sun Δaz</b> = azimuth difference from the Sun at the start of the twilight band (${sun && t12 ? `Sun at ${sun.azimuth.toFixed(0)}° ${compass(sun.azimuth)}, ${fmtHM(t12)} KST` : 'n/a'}); small values look towards the residual twilight glow.
+        <b>Moon</b> = smallest angular distance from the frame centre to the Moon while it is up during the window (“down” = below the horizon all window).
+        Keep one pointing all night so both bands are comparable.</p>`;
   }
 
   private issCard(): string {

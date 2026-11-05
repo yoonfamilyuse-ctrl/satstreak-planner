@@ -92,7 +92,9 @@ For today and the next 13 evenings: shooting window, number of shots, Moon illum
 
     GEO objects stay fixed relative to the ground, so on a tripod they are points. MEO objects make dashes only a few pixels longer than the star trails around them. Neither produces the kind of streak this project detects. Many of them also stay in the frame for the entire window, so counting them as "crossings" would add a constant offset to both bands and mask the twilight-versus-dark difference.
 - **Geometric counts are upper bounds**: every sunlit object in the frame counts, however faint. Each band therefore also shows a "brighter than the limiting magnitude" count (see *Predicted brightness*).
-- **Pointing comparison:** the same computation for 8 azimuths × 45°/60°, at 10-s resolution.
+- **Pointing comparison:** the same computation for 8 azimuths × 45°/60°, at 10-s resolution. The project keeps **one fixed pointing for the whole night** so the two bands are comparable, so the table is for choosing that pointing. Besides the counts (all and brighter than the limit, per band), each row shows:
+  - **Sun Δaz**: azimuth difference between the pointing and the Sun at the start of the twilight band (Sun at −12°; astronomy-engine). Small values look towards the residual twilight glow.
+  - **Moon**: the smallest great-circle angle between the frame centre and the Moon while the Moon is above the horizon during the window (5-min samples; spherical law of cosines). "down" means the Moon is below the horizon for the whole window.
 
 ### Predicted brightness
 
