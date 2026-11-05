@@ -25,8 +25,9 @@ import {
 import { makeZip } from '../log/zip';
 import { SatWorker } from '../sat/client';
 import { DEFAULT_CAMERA, inFov, makeFov } from '../sat/fov';
-import { compass } from '../astro/moon';
-import { fileStamp, fmtDateTime, fmtHM, fmtHMS, fmtShortDate, isValidDateString } from '../time';
+import { fileStamp, fmtDateTime, fmtHM, fmtHMS, isValidDateString } from '../time';
+import { S, shortDate as fmtShortDate } from '../i18n';
+import { dir } from './util';
 import { esc } from './util';
 
 export interface LogCtx {
@@ -38,7 +39,7 @@ export interface LogCtx {
 const CHEVRON = '<svg class="chev" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const CHEVRON_L = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const CROSS = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
-const BAND_NAME: Record<string, string> = { twilight: 'Twilight band', dark: 'Dark band', gap: 'Between bands', outside: 'Outside bands' };
+const bandName = (k: string) => S().log.band[k] ?? k;
 
 function download(name: string, data: BlobPart, type: string) {
   const url = URL.createObjectURL(new Blob([data], { type }));
@@ -104,7 +105,7 @@ export class LogView {
     try {
       this.logs = (await listLogs()).map(migrateLog);
     } catch (e) {
-      this.status = `Local storage unavailable: ${(e as Error).message}`;
+      this.status = S().log.storageErr((e as Error).message);
     }
     this.paint();
   }
@@ -151,12 +152,12 @@ export class LogView {
   private gps() {
     if (!this.current || !navigator.geolocation) return;
     const id = this.current.id;
-    this.status = 'Getting GPS position…';
+    this.status = S().log.gettingGps;
     this.paintStatus();
     navigator.geolocation.getCurrentPosition(
       (pos) => void this.applyGps(id, pos),
       (err) => {
-        this.status = `GPS failed: ${err.message}. Site left as the planning site.`;
+        this.status = S().log.gpsFailed(err.message);
         this.paintStatus();
       },
       { enableHighAccuracy: true, timeout: 20000 },
@@ -180,7 +181,7 @@ export class LogView {
     };
     await this.save(log);
     if (open && this.current === log) {
-      this.status = `GPS filled (±${Math.round(pos.coords.accuracy)} m).`;
+      this.status = S().log.gpsFilled(Math.round(pos.coords.accuracy));
       this.paint();
     } else if (!this.current) void this.reload();
   }
@@ -226,7 +227,7 @@ export class LogView {
     }
     if (act === 'delete') {
       const log = this.current;
-      if (log && confirm('Delete this log from this device? Export it first if you need it.')) {
+      if (log && confirm(S().log.confirmDelete)) {
         // The debounce timer may be overdue by now (confirm() blocks): cancel it before it can re-save the log.
         if (this.pending?.id === log.id) {
           clearTimeout(this.saveTimer);
@@ -246,10 +247,10 @@ export class LogView {
       void (async () => {
         const latest = (await listSets())[0];
         if (!latest) {
-          this.status = 'No element set on this device. Download or load one in the Satellites tab.';
+          this.status = S().log.noSet;
           return this.paintStatus();
         }
-        if (!confirm(`Lock the element set downloaded ${fmtDateTime(latest.downloadedAt)} KST as the record for ${log.date}?`)) return;
+        if (!confirm(S().log.confirmLock(fmtDateTime(latest.downloadedAt), log.date))) return;
         await lockNightSet(log.date, latest.id);
         await this.syncElementSet(log);
         this.paint();
@@ -264,7 +265,7 @@ export class LogView {
     if (t.dataset.f) {
       // A cleared or half-typed date input reports ''. Keep the stored night instead of saving an invalid date.
       if (t.dataset.f === 'date' && !isValidDateString(t.value)) {
-        this.status = 'Night not changed: enter a complete date.';
+        this.status = S().log.badDate;
         return this.paintStatus();
       }
       const kind = t.dataset.kind;
@@ -284,7 +285,7 @@ export class LogView {
     if (this.pending && this.pending !== log) void this.save(this.pending);
     clearTimeout(this.saveTimer);
     this.pending = log;
-    this.status = 'Saving…';
+    this.status = S().log.saving;
     this.paintStatus();
     this.saveTimer = window.setTimeout(() => void this.flush(), 500);
   }
@@ -306,9 +307,9 @@ export class LogView {
     log.updatedAt = Date.now();
     try {
       await putLog(log);
-      this.status = `Saved on this device ${fmtHMS(new Date())}`;
+      this.status = S().log.saved(fmtHMS(new Date()));
     } catch (e) {
-      this.status = `NOT saved: ${(e as Error).message}`;
+      this.status = S().log.notSaved((e as Error).message);
     }
     this.paintStatus();
   }
@@ -388,11 +389,11 @@ export class LogView {
       this.issCheck = { html, csv: this.issCheck?.csv ?? '' };
       this.paintDerived();
     };
-    if (d.start === null) return out('<p class="warn">Enter the actual start first.</p>');
-    if (!log.elementSetId) return out('<p class="warn">Lock an element set for this night first (see Export).</p>');
+    if (d.start === null) return out(`<p class="warn">${S().log.issNeedStart}</p>`);
+    if (!log.elementSetId) return out(`<p class="warn">${S().log.issNeedLock}</p>`);
     const text = await getSetText(log.elementSetId);
-    if (!text) return out('<p class="warn">Element set not found on this device.</p>');
-    out('<p class="note">Computing…</p>');
+    if (!text) return out(`<p class="warn">${S().log.issNoSet}</p>`);
+    out(`<p class="note">${S().log.computing}</p>`);
     this.worker ??= new SatWorker();
     const exp = log.camera.exposureS ?? 15;
     const interval = d.interval;
@@ -437,13 +438,14 @@ export class LogView {
       for (const n of frames) {
         const fs = d.start + (n - 1) * interval * 1000 + shift;
         const [a, b] = await exact([fs, fs + exp * 1000]);
-        const pos = (p: typeof a) => `${p.az.toFixed(2)}° ${compass(p.az)}, ${p.alt.toFixed(2)}°${p.sunlit ? '' : ' (shadow)'}`;
+        const pos = (p: typeof a) => `${p.az.toFixed(2)}° ${dir(p.az)}, ${p.alt.toFixed(2)}°${p.sunlit ? '' : S().log.shadow}`;
         const band = bandAtTime(fs + exp * 500, bandsOfNight); // mid-exposure rule (frames.ts)
-        rows.push(`<tr><td>${conv}</td><td class="r tnum">${n}</td><td>${BAND_NAME[band]}</td><td class="tnum">${fmtHMS(new Date(fs))}</td><td class="tnum">${pos(a)}</td><td class="tnum">${pos(b)}</td></tr>`);
+        rows.push(`<tr><td>${conv}</td><td class="r tnum">${n}</td><td>${bandName(band)}</td><td class="tnum">${fmtHMS(new Date(fs))}</td><td class="tnum">${pos(a)}</td><td class="tnum">${pos(b)}</td></tr>`);
         csv.push([conv, n, band, formatKst(fs), formatKst(fs + exp * 1000), a.az.toFixed(4), a.alt.toFixed(4), b.az.toFixed(4), b.alt.toFixed(4), a.sunlit, b.sunlit].join(','));
       }
     }
     const meta = this.setMeta;
+    const H = S().log.issHead;
     this.issCheck = {
       csv:
         `# ISS predicted positions per frame, night ${log.date}; A: EXIF = exposure start, B: EXIF = exposure end; elements ${meta?.label ?? log.elementSetId} (ISS epoch ${new Date(r.epoch).toISOString()})\n` +
@@ -451,10 +453,10 @@ export class LogView {
         csv.join('\n') +
         '\n',
       html: rows.length
-        ? `<div class="scroll-x"><table><thead><tr><th>Conv.</th><th class="r">Frame</th><th>Band</th><th>Exposure start (true)</th><th>ISS at start (az, alt)</th><th>ISS at end</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
-           <p class="note">A = EXIF marks the exposure start; B = EXIF marks the end (true start ${exp} s earlier). The ISS moves ≈ 1°/s here, so 1 s of timing error ≈ 1° along the track. Band: Sun at mid-exposure (frame start + ${exp / 2} s). ISS element epoch ${fmtDateTime(r.epoch)} KST.</p>
-           <div class="btn-row"><button type="button" data-log="iss-csv">Download ISS timing CSV</button></div>`
-        : '<p class="note">The ISS does not enter this frame during the logged run (check pointing, start time and frame count).</p>',
+        ? `<div class="scroll-x"><table><thead><tr><th>${H.conv}</th><th class="r">${H.frame}</th><th>${H.band}</th><th>${H.start}</th><th>${H.atStart}</th><th>${H.atEnd}</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
+           <p class="note">${S().log.issNote(exp, exp / 2, fmtDateTime(r.epoch))}</p>
+           <div class="btn-row"><button type="button" data-log="iss-csv">${S().log.issCsv}</button></div>`
+        : `<p class="note">${S().log.issNone}</p>`,
     };
     this.paintDerived();
   }
@@ -534,126 +536,129 @@ export class LogView {
   }
 
   private listHtml(): string {
+    const L = S().log;
     const rows = this.logs
       .map(
         (l) => `<li><button type="button" class="log-row" data-log="open" data-id="${esc(l.id)}">
-          <span class="log-row-main"><b>${fmtShortDate(l.date)}</b><span class="sec">${esc(l.observers || 'No observers entered')}</span></span>
-          <span class="log-row-side tnum">${l.start ? esc(l.start.slice(11)) : '—'}${l.camera.shotsTaken !== null ? `<span class="sec">${l.camera.shotsTaken} ${l.camera.shotsTaken === 1 ? 'frame' : 'frames'}</span>` : ''}</span>
+          <span class="log-row-main"><b>${fmtShortDate(l.date)}</b><span class="sec">${esc(l.observers || L.noObservers)}</span></span>
+          <span class="log-row-side tnum">${l.start ? esc(l.start.slice(11)) : '—'}${l.camera.shotsTaken !== null ? `<span class="sec">${L.frames(l.camera.shotsTaken)}</span>` : ''}</span>
           ${CHEVRON}</button></li>`,
       )
       .join('');
     const hasTonight = this.logs.some((l) => l.date === this.ctx.date);
     return `<section class="block log-intro">
-      <h2>Field log</h2>
-      <p class="note">One log per night: actual start and end, the camera clock check against time.is, conditions, camera and site. Saved on this phone as you type.</p>
-      <button type="button" class="primary big-btn" data-log="new">${hasTonight ? 'Another' : 'New'} log for ${fmtShortDate(this.ctx.date)}</button>
+      <h2>${L.title}</h2>
+      <p class="note">${L.intro}</p>
+      <button type="button" class="primary big-btn" data-log="new">${L.newLog(hasTonight, fmtShortDate(this.ctx.date))}</button>
       ${this.status ? `<p class="note">${esc(this.status)}</p>` : ''}
     </section>
-    <section class="block"><h2>Past logs (${this.logs.length})</h2>
-      ${this.logs.length ? `<ul class="log-list">${rows}</ul>` : '<p class="note">No logs yet. Logs stay on this phone until you delete them; export each one after the night.</p>'}
+    <section class="block"><h2>${L.pastLogs(this.logs.length)}</h2>
+      ${this.logs.length ? `<ul class="log-list">${rows}</ul>` : `<p class="note">${L.noLogs}</p>`}
     </section>`;
   }
 
   private formHtml(): string {
     const l = this.current!;
+    const L = S().log;
     const num = (path: string, label: string, step = 'any', extra = '') =>
       `<label>${label}<input data-f="${path}" data-kind="num" type="number" inputmode="${step === '1' ? 'numeric' : 'decimal'}" enterkeyhint="done" step="${step}" value="${get(l, path) ?? ''}" ${extra}></label>`;
     const txt = (path: string, label: string, ph = '') => `<label class="full">${label}<input data-f="${path}" type="text" enterkeyhint="done" value="${esc(String(get(l, path) ?? ''))}" placeholder="${esc(ph)}"></label>`;
-    const SRC_LABEL: Record<TimeSource, string> = { camera: 'Camera clock (EXIF)', true: 'True time (time.is)', phone: 'Phone clock (Now)' };
+    const SRC_LABEL = L.src as Record<TimeSource, string>;
     const plan = this.planFor(l);
     const planned = (path: 'start' | 'end') => (plan?.window ? fmtHMS(path === 'start' ? plan.window.start : plan.window.end) : '—');
     const dt = (path: 'start' | 'end', label: string) =>
       `<div class="when">
-        <div class="when-head"><span class="when-label">${label}</span><span class="sec tnum">plan ${planned(path)}</span></div>
-        <button type="button" class="primary big-btn" data-log="now" data-target="${path}">${path === 'start' ? 'Start' : 'End'} now</button>
+        <div class="when-head"><span class="when-label">${label}</span><span class="sec tnum">${L.plan(planned(path))}</span></div>
+        <button type="button" class="primary big-btn" data-log="now" data-target="${path}">${path === 'start' ? L.startNow : L.endNow}</button>
         <div class="cam-grid">
-          <label>Time<input data-f="${path}" type="datetime-local" step="1" value="${esc(String(get(l, path) ?? ''))}"></label>
-          <label>Read from<select data-f="timeSource.${path}" aria-label="${label}: clock it was read from">${TIME_SOURCES.map((o) => `<option value="${o}"${l.timeSource[path] === o ? ' selected' : ''}>${SRC_LABEL[o]}</option>`).join('')}</select></label>
+          <label>${L.time}<input data-f="${path}" type="datetime-local" step="1" value="${esc(String(get(l, path) ?? ''))}"></label>
+          <label>${L.readFrom}<select data-f="timeSource.${path}" aria-label="${L.readFromAria(label)}">${TIME_SOURCES.map((o) => `<option value="${o}"${l.timeSource[path] === o ? ' selected' : ''}>${SRC_LABEL[o]}</option>`).join('')}</select></label>
         </div>
       </div>`;
     const CLOUDS = ['Clear', 'Thin high cloud', 'Partly cloudy', 'Mostly cloudy', 'Overcast'];
     const chips = (path: string, opts: string[]) =>
-      `<div class="chips" role="group" aria-label="Clouds">${opts.map((o) => `<button type="button" class="chip" data-log="pick" data-f="${path}" data-v="${esc(o)}" aria-pressed="${get(l, path) === o}">${esc(o)}</button>`).join('')}</div>`;
-    const dateWarn = l.date !== this.ctx.date ? `<p class="warn">This log is for ${esc(fmtShortDate(l.date))}; the date bar shows ${fmtShortDate(this.ctx.date)}. Plan times, bands and exports here use the log’s night.</p>` : '';
-    return `<div class="log-top"><button type="button" class="pill-btn" data-log="back">${CHEVRON_L} All logs</button><span class="sec tnum" id="log-status" role="status">${esc(this.status)}</span></div>
-    <h2 class="log-title">Log · ${fmtShortDate(l.date)}</h2>
+      `<div class="chips" role="group" aria-label="${L.clouds}">${opts.map((o) => `<button type="button" class="chip" data-log="pick" data-f="${path}" data-v="${esc(o)}" aria-pressed="${get(l, path) === o}">${esc(L.cloudOpts[o] ?? o)}</button>`).join('')}</div>`;
+    const dateWarn = l.date !== this.ctx.date ? `<p class="warn">${L.dateWarn(esc(fmtShortDate(l.date)), fmtShortDate(this.ctx.date))}</p>` : '';
+    return `<div class="log-top"><button type="button" class="pill-btn" data-log="back">${CHEVRON_L} ${L.allLogs}</button><span class="sec tnum" id="log-status" role="status">${esc(this.status)}</span></div>
+    <h2 class="log-title">${L.logTitle(fmtShortDate(l.date))}</h2>
     ${dateWarn}
-    <section class="block"><h2>Shooting</h2>
-      ${dt('start', 'Start (first frame)')}
-      ${dt('end', 'End (last frame)')}
+    <section class="block"><h2>${L.shooting}</h2>
+      ${dt('start', L.startLabel)}
+      ${dt('end', L.endLabel)}
       <div class="cam-grid">
-        ${num('camera.shotsTaken', 'Frames taken', '1')}${num('camera.shotsPlanned', 'Number of Shots (set)', '1')}
+        ${num('camera.shotsTaken', L.framesTaken, '1')}${num('camera.shotsPlanned', L.shotsSet, '1')}
       </div>
-      <p class="note">Camera-clock times are corrected by the measured offset; time.is and phone times are used as they are. “Now” fills the phone’s time and sets the source to Phone clock.</p>
+      <p class="note">${L.shootingNote}</p>
     </section>
-    <section class="block"><h2>Camera clock check (time.is)</h2>
-      <p class="note">For each photo of the time.is screen: the EXIF time (camera clock) and the time shown in the photo. Offset = EXIF − screen; each side uses the mean.</p>
-      ${this.readingsHtml('clockBefore', 'Before shooting')}
-      ${this.readingsHtml('clockAfter', 'After shooting')}
-      <details class="how"><summary>How to take the time.is photos</summary>
-        <p class="note">Use a <b>fast shutter speed (e.g. 1/100 s)</b> so the digits are sharp. Take <b>5–10 shots before and 5–10 after</b>, a few seconds apart, without changing the camera time settings. EXIF DateTimeOriginal has whole-second resolution (CIPA DC-008), and time.is shows whole seconds, so one reading is only good to about ±1 s. Readings taken at different fractions of a second average to a much better estimate. If your files contain <code>SubSecTimeOriginal</code> (check with <code>exiftool -time:all</code>), enter the EXIF time to the second and note the fraction in Notes.</p>
+    <section class="block"><h2>${L.clockTitle}</h2>
+      <p class="note">${L.clockNote}</p>
+      ${this.readingsHtml('clockBefore', L.before)}
+      ${this.readingsHtml('clockAfter', L.after)}
+      <details class="how"><summary>${L.howTitle}</summary>
+        <p class="note">${L.how}</p>
       </details>
     </section>
-    <section class="block"><h2>Conditions</h2>
-      <span class="field-label">Clouds</span>
+    <section class="block"><h2>${L.conditions}</h2>
+      <span class="field-label">${L.clouds}</span>
       ${chips('clouds', CLOUDS)}
       <div class="cam-grid">
-        ${txt('weather', 'Weather (wind, humidity, dew, temperature)')}
-        ${txt('moon', 'Moon')}
-        <label class="full">Notes (airplanes, lights, interruptions)<textarea data-f="notes" rows="4">${esc(l.notes)}</textarea></label>
+        ${txt('weather', L.weather)}
+        ${txt('moon', L.moon)}
+        <label class="full">${L.notes}<textarea data-f="notes" rows="4">${esc(l.notes)}</textarea></label>
       </div>
     </section>
-    <section class="block"><h2>Camera</h2>
+    <section class="block"><h2>${L.camera}</h2>
       <div class="cam-grid">
-        ${num('camera.azimuth', 'Azimuth (°)', '1')}${num('camera.altitude', 'Altitude (°)', '1')}
-        ${num('camera.focalLength', 'Focal length (mm)')}${num('camera.iso', 'ISO', '1')}
-        ${num('camera.aperture', 'Aperture (f/)', '0.1')}${num('camera.exposureS', 'Exposure (s)')}
-        ${num('camera.intervalS', 'Interval (s)')}
+        ${num('camera.azimuth', L.azimuth, '1')}${num('camera.altitude', L.altitude, '1')}
+        ${num('camera.focalLength', L.focal)}${num('camera.iso', L.iso, '1')}
+        ${num('camera.aperture', L.aperture, '0.1')}${num('camera.exposureS', L.exposure)}
+        ${num('camera.intervalS', L.interval)}
       </div>
     </section>
-    <section class="block"><h2>Night &amp; site</h2>
+    <section class="block"><h2>${L.nightSite}</h2>
       <div class="cam-grid">
-        <label>Night (evening date)<input data-f="date" type="date" value="${l.date}"></label>
-        ${num('site.accuracyM', 'GPS accuracy (m)')}
-        ${txt('observers', 'Observers')}
-        ${num('site.latitude', 'Latitude (°N)')}${num('site.longitude', 'Longitude (°E)')}
-        ${num('site.elevation', 'Elevation (m)')}
+        <label>${L.nightDate}<input data-f="date" type="date" value="${l.date}"></label>
+        ${num('site.accuracyM', L.gpsAcc)}
+        ${txt('observers', L.observers)}
+        ${num('site.latitude', L.lat)}${num('site.longitude', L.lon)}
+        ${num('site.elevation', L.elev)}
       </div>
-      <div class="btn-row"><button type="button" data-log="gps">Use GPS</button><span class="sec">Source: ${l.site.source || '—'}</span></div>
+      <div class="btn-row"><button type="button" data-log="gps">${L.useGps}</button><span class="sec">${L.source(l.site.source || '—')}</span></div>
     </section>
-    <section class="block"><h2>Timing for band sorting</h2>
+    <section class="block"><h2>${L.timing}</h2>
       <div id="log-derived"></div>
-      <h3>Photo → band</h3>
+      <h3>${L.photoBand}</h3>
       <div class="cam-grid">
-        <label class="full">EXIF time of any photo<input id="conv-exif" type="datetime-local" step="1"></label>
-        <label class="full">…or frame number<input id="conv-frame" type="number" inputmode="numeric" min="1" step="1"></label>
+        <label class="full">${L.exifAny}<input id="conv-exif" type="datetime-local" step="1"></label>
+        <label class="full">${L.orFrame}<input id="conv-frame" type="number" inputmode="numeric" min="1" step="1"></label>
       </div>
       <div id="log-conv"></div>
-      <h3>ISS timing check</h3>
-      <p class="note">If the ISS crossed the frame, this lists its predicted position at the start and end of each exposure, for both EXIF conventions. Use it with the README procedure to confirm the convention and any leftover clock offset.</p>
-      <div class="btn-row"><button type="button" data-log="iss-check">Predict ISS positions per frame</button></div>
+      <h3>${L.issTitle}</h3>
+      <p class="note">${L.issIntro}</p>
+      <div class="btn-row"><button type="button" data-log="iss-check">${L.issBtn}</button></div>
       <div id="log-iss"></div>
     </section>
-    <section class="block"><h2>Export</h2>
-      <p class="note">${l.elementSetId ? `Element set: ${this.setMeta ? `${esc(this.setMeta.label)}, downloaded ${fmtDateTime(this.setMeta.downloadedAt)} KST` : esc(l.elementSetId)}` : `<b>No element set locked for ${l.date}.</b> The export needs the elements used that night.`}</p>
-      ${l.elementSetId ? '' : '<div class="btn-row"><button type="button" data-log="lock-latest">Lock the most recent element set for this night</button></div>'}
-      <div class="btn-row"><button type="button" class="primary" data-log="zip">Download bundle (.zip)</button><button type="button" data-log="csv">CSV</button><button type="button" data-log="json">JSON</button></div>
-      <p class="note">The bundle contains the log (CSV + JSON), the night’s elements as TLE text (.txt) plus the original OMM JSON (needed for 6-digit catalog numbers), and a README.</p>
-      <div class="btn-row danger-row"><button type="button" class="danger" data-log="delete">Delete log</button></div>
+    <section class="block"><h2>${L.export}</h2>
+      <p class="note">${l.elementSetId ? (this.setMeta ? L.setInfo(esc(this.setMeta.label), fmtDateTime(this.setMeta.downloadedAt)) : L.setId(esc(l.elementSetId))) : L.noLock(l.date)}</p>
+      ${l.elementSetId ? '' : `<div class="btn-row"><button type="button" data-log="lock-latest">${L.lockLatest}</button></div>`}
+      <div class="btn-row"><button type="button" class="primary" data-log="zip">${L.bundle}</button><button type="button" data-log="csv">CSV</button><button type="button" data-log="json">JSON</button></div>
+      <p class="note">${L.bundleNote}</p>
+      <div class="btn-row danger-row"><button type="button" class="danger" data-log="delete">${L.deleteLog}</button></div>
     </section>`;
   }
 
   private readingsHtml(side: 'clockBefore' | 'clockAfter', title: string): string {
+    const L = S().log;
     const list = this.current![side];
     const rows = list
       .map(
         (c, i) => `<div class="reading"><span class="reading-n tnum">${i + 1}</span>
-          <label>EXIF time<input data-f="${side}.${i}.exif" type="datetime-local" step="1" value="${esc(c.exif)}"></label>
-          <label>time.is screen<input data-f="${side}.${i}.actual" type="datetime-local" step="1" value="${esc(c.actual)}"></label>
-          <button type="button" class="icon-btn" data-log="del-reading" data-side="${side}" data-i="${i}" aria-label="Remove reading ${i + 1}">${CROSS}</button></div>`,
+          <label>${L.exifTime}<input data-f="${side}.${i}.exif" type="datetime-local" step="1" value="${esc(c.exif)}"></label>
+          <label>${L.timeisScreen}<input data-f="${side}.${i}.actual" type="datetime-local" step="1" value="${esc(c.actual)}"></label>
+          <button type="button" class="icon-btn" data-log="del-reading" data-side="${side}" data-i="${i}" aria-label="${L.removeReading(i + 1)}">${CROSS}</button></div>`,
       )
       .join('');
-    return `<h3>${title}</h3>${rows}<button type="button" class="add-btn" data-log="add-reading" data-side="${side}">Add a reading</button>`;
+    return `<h3>${title}</h3>${rows}<button type="button" class="add-btn" data-log="add-reading" data-side="${side}">${L.addReading}</button>`;
   }
 
   private paintDerived() {
@@ -663,18 +668,23 @@ export class LogView {
     const keepFrame = this.el!.querySelector<HTMLInputElement>('#conv-frame')?.value ?? '';
     const d = this.derived();
     const plan = d.plan;
+    const L = S().log;
     const s = (x: number | null, u = 's') => (x === null ? '—' : `${x > 0 ? '+' : ''}${x.toFixed(1)} ${u}`);
     const clockTxt =
       d.clock.before === null && d.clock.after === null
-        ? '<b>Not measured yet.</b> Without it, camera times are used as true times.'
-        : `before ${s(d.clock.before)}${d.clock.beforeDetail ? ` <span class="sec">(n = ${d.clock.beforeDetail.n}, ${d.clock.beforeDetail.min}…${d.clock.beforeDetail.max})</span>` : ''}, after ${s(d.clock.after)}${d.clock.afterDetail ? ` <span class="sec">(n = ${d.clock.afterDetail.n}, ${d.clock.afterDetail.min}…${d.clock.afterDetail.max})</span>` : ''}${d.clock.drift !== null ? `, drift ${s(d.clock.drift)}` : ''} <span class="sec">(+ = camera fast)</span>`;
-    const driftWarn = d.clock.drift !== null && Math.abs(d.clock.drift) > 2 ? '<p class="warn">Clock drift over 2 s: check both time.is photos.</p>' : '';
-    const intWarn = d.eff !== null && Math.abs(d.eff - d.interval) > 0.05 ? `<p class="warn">Effective interval ${d.eff.toFixed(3)} s differs from the ${d.interval} s setting. Check the frame count and the end time; frame numbers below assume ${d.interval} s.</p>` : '';
+        ? L.notMeasured
+        : L.clock(
+            `${s(d.clock.before)}${d.clock.beforeDetail ? ` <span class="sec">(n = ${d.clock.beforeDetail.n}, ${d.clock.beforeDetail.min}…${d.clock.beforeDetail.max})</span>` : ''}`,
+            `${s(d.clock.after)}${d.clock.afterDetail ? ` <span class="sec">(n = ${d.clock.afterDetail.n}, ${d.clock.afterDetail.min}…${d.clock.afterDetail.max})</span>` : ''}`,
+            d.clock.drift !== null ? s(d.clock.drift) : null,
+          );
+    const driftWarn = d.clock.drift !== null && Math.abs(d.clock.drift) > 2 ? `<p class="warn">${L.driftWarn}</p>` : '';
+    const intWarn = d.eff !== null && Math.abs(d.eff - d.interval) > 0.05 ? `<p class="warn">${L.intWarn(d.eff.toFixed(3), d.interval)}</p>` : '';
     const bandRows = d.bands
       .map((b) => {
         const p = plan?.bands.find((x) => x.key === b.key);
         const sched = p?.plannedFirst ? [p.plannedFirst, p.plannedLast] : ['—'];
-        return `<tr class="${b.key}"><td>${BAND_NAME[b.key]}</td><td class="tnum">${b.start ? fmtHMS(new Date(b.start)) : '—'}–${b.end ? fmtHMS(new Date(b.end)) : '—'}</td>
+        return `<tr class="${b.key}"><td>${bandName(b.key)}</td><td class="tnum">${b.start ? fmtHMS(new Date(b.start)) : '—'}–${b.end ? fmtHMS(new Date(b.end)) : '—'}</td>
           <td class="r tnum"><b>${b.firstFrame ?? '—'}–${b.lastFrame ?? '—'}</b></td><td class="r tnum sec">${sched.join('–')}</td></tr>`;
       })
       .join('');
@@ -688,28 +698,28 @@ export class LogView {
         // The EXIF time is read like the logged start (as the exposure start), so mid-exposure = tt + E/2.
         const mid = tt + d.exposure * 500;
         const sa = sunAltitude(new Date(mid), this.ctx.site);
-        conv += `<p class="tnum">True ${fmtHMS(new Date(tt))} · frame ${fr ?? 'outside run'} · Sun ${sa.toFixed(2)}° at mid-exposure · <b>${BAND_NAME[bandAtTime(mid, plan?.bands ?? [])]}</b></p>`;
+        conv += `<p class="tnum">${L.convExif(fmtHMS(new Date(tt)), String(fr ?? L.outsideRun), sa.toFixed(2), bandName(bandAtTime(mid, plan?.bands ?? [])))}</p>`;
       }
       const n = Number(keepFrame);
       if (keepFrame && Number.isInteger(n) && n >= 1) {
         const tt = frameStart(d.start, d.interval, n);
         const mid = midExposure(d.start, d.interval, d.exposure, n); // logged exposure (15 s if not entered)
         const sa = sunAltitude(new Date(mid), this.ctx.site);
-        conv += `<p class="tnum">Frame ${n}: starts ${fmtHMS(new Date(tt))} true · Sun ${sa.toFixed(2)}° at mid-exposure · <b>${BAND_NAME[bandAtTime(mid, plan?.bands ?? [])]}</b></p>`;
+        conv += `<p class="tnum">${L.convFrame(n, fmtHMS(new Date(tt)), sa.toFixed(2), bandName(bandAtTime(mid, plan?.bands ?? [])))}</p>`;
       }
     }
     const issBox = this.el!.querySelector<HTMLElement>('#log-iss');
     if (issBox) issBox.innerHTML = this.issCheck?.html ?? '';
     const convBox = this.el!.querySelector<HTMLElement>('#log-conv');
-    if (convBox) convBox.innerHTML = conv || '<p class="note">EXIF times are the most accurate way to sort a frame: they are corrected by the clock offset, then classified by the Sun’s altitude at mid-exposure (EXIF time + exposure/2, reading the EXIF time as the exposure start, as for the logged start).</p>';
+    if (convBox) convBox.innerHTML = conv || `<p class="note">${L.convNote}</p>`;
     box.innerHTML = `<dl class="kv">
-        <dt>Clock offset</dt><dd class="tnum">${clockTxt}</dd>
-        <dt>True start</dt><dd class="tnum">${d.start !== null ? `<b>${fmtHMS(new Date(d.start))}</b>${d.startCorrected ? ' (corrected)' : ''}${d.lateS !== null ? ` · ${d.lateS >= 0 ? `${(d.lateS / 60).toFixed(1)} min after` : `${(-d.lateS / 60).toFixed(1)} min before`} the planned start` : ''}` : 'enter the start time'}</dd>
-        <dt>True end</dt><dd class="tnum">${d.end !== null ? `${fmtHMS(new Date(d.end))}${d.endCorrected ? ' (corrected)' : ''}` : '—'}</dd>
-        <dt>Effective interval</dt><dd class="tnum">${d.eff !== null ? `${d.eff.toFixed(3)} s (${d.shots} frames)` : '—'}</dd>
+        <dt>${L.clockOffset}</dt><dd class="tnum">${clockTxt}</dd>
+        <dt>${L.trueStart}</dt><dd class="tnum">${d.start !== null ? `<b>${fmtHMS(new Date(d.start))}</b>${d.startCorrected ? L.corrected : ''}${d.lateS !== null ? L.late((Math.abs(d.lateS) / 60).toFixed(1), d.lateS >= 0) : ''}` : L.enterStart}</dd>
+        <dt>${L.trueEnd}</dt><dd class="tnum">${d.end !== null ? `${fmtHMS(new Date(d.end))}${d.endCorrected ? L.corrected : ''}` : '—'}</dd>
+        <dt>${L.effInterval}</dt><dd class="tnum">${d.eff !== null ? L.effVal(d.eff.toFixed(3), d.shots) : '—'}</dd>
       </dl>
       ${driftWarn}${intWarn}
-      ${d.start !== null ? `<table style="margin-top:10px"><thead><tr><th>Band</th><th>Sun-angle times (KST)</th><th class="r">Frames (actual)</th><th class="r">Planned</th></tr></thead><tbody>${bandRows}</tbody></table>
-      <p class="note">A frame belongs to a band if the Sun’s altitude at its mid-exposure (frame start + ${d.exposure / 2} s) is inside the band; frames from the true start and the ${d.interval}-s interval. "Planned" assumes the scheduled start (${plan?.window ? fmtHM(plan.window.start) : '—'}) with the planned ${CAMERA.exposureS}-s exposure and ${CAMERA.intervalS}-s interval.</p>` : ''}`;
+      ${d.start !== null ? `<table style="margin-top:10px"><thead><tr><th>${L.thBand}</th><th>${L.thSunTimes}</th><th class="r">${L.thActual}</th><th class="r">${L.thPlanned}</th></tr></thead><tbody>${bandRows}</tbody></table>
+      <p class="note">${L.bandNote(d.exposure / 2, d.interval, plan?.window ? fmtHM(plan.window.start) : '—', CAMERA.exposureS, CAMERA.intervalS)}</p>` : ''}`;
   }
 }

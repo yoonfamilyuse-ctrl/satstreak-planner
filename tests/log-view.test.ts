@@ -354,3 +354,26 @@ describe('Log tab: list wording', () => {
     expect(el.textContent).not.toContain('1 frames');
   });
 });
+
+describe('Log tab in Korean', () => {
+  it('labels, chips and list are Korean; stored values and exports stay English', async () => {
+    const i18n = await import('../src/i18n');
+    i18n.setLang('ko');
+    try {
+      const { el } = mount();
+      await until(() => el.textContent?.includes('지난 기록 (0)'), 3000, 'Korean list');
+      fire(await btn(el, 'new'), 'click');
+      await until(() => q(el, '[data-f="observers"]'), 3000, 'log form');
+      expect(el.textContent).toContain('촬영');
+      expect(q(el, '[data-log="now"][data-target="start"]')!.textContent).toBe('지금 시작');
+      const chip = q<HTMLButtonElement>(el, '[data-log="pick"][data-v="Partly cloudy"]')!;
+      expect(chip.textContent).toBe('구름 조금');
+      fire(chip, 'click');
+      await sleep(700);
+      expect((await store.listLogs())[0].clouds).toBe('Partly cloudy'); // the stored value stays English
+      expect(el.textContent).not.toMatch(/Camera clock check|Conditions|Past logs/);
+    } finally {
+      i18n.setLang('en');
+    }
+  });
+});
