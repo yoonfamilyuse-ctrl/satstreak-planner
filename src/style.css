@@ -435,3 +435,36 @@ details.how[open] summary::after { transform: rotate(-135deg) translateY(-2px); 
 .danger-row { margin-top: 24px; }
 button.danger { color: var(--mark-text); border-color: var(--mark-text); }
 .when .cam-grid { grid-template-columns: 1fr; }
+
+/* ---------- satellites ---------- */
+.iss-card { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px 12px; padding: 14px; margin: 4px 0 12px; border: 1.5px solid var(--rule-strong); border-radius: 14px; }
+.iss-card > :not(.iss-kicker):not(.iss-big-line) { grid-column: 1 / -1; }
+.iss-card.yes { border: 2.5px solid var(--mark); }
+.iss-kicker { font-size: 13px; font-weight: 800; letter-spacing: .06em; padding: 3px 9px; border-radius: 999px; background: var(--btn); color: var(--btn-ink); }
+:root[data-theme='night'] .iss-kicker { background: #300000; color: var(--mark); }
+.iss-big-line { margin: 0; font-size: 19px; font-weight: 700; line-height: 1.25; }
+.iss-pass { padding-top: 6px; }
+.iss-pass + .iss-pass { border-top: 1px solid var(--rule); margin-top: 6px; }
+.iss-times { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.iss-times > span { display: flex; flex-direction: column; }
+.iss-times b { font-size: 34px; font-weight: 750; letter-spacing: -0.03em; line-height: 1.05; }
+.iss-line { margin: 8px 0 2px; font-size: 15px; }
+.iss-card .sec { font-size: 13px; margin: 4px 0 0; }
+tr.iss-row td { font-weight: 700; }
+tr.iss-row td:nth-child(2) { color: var(--mark-text); }
+.band-fact { gap: 1px; }
+.check { min-height: 44px; font-size: 14px; }
+.check input { width: 22px; min-height: 22px; height: 22px; }
+.block .facts { margin-top: 4px; }
+.busy { top: calc(env(safe-area-inset-top) + 58px); }
+.file-btn { min-height: 44px; }
+.set-pick button { min-height: 48px; }
+.actions-cell button { margin: 2px 0 2px 6px; }
+
+/* Checkboxes drawn from the tokens: the native one paints a light tick even with accent-color (no white at night). */
+input[type='checkbox'] { appearance: none; -webkit-appearance: none; flex: none; width: 22px; height: 22px; min-height: 22px; margin: 0; padding: 0; border: 2px solid var(--ink); border-radius: 5px; background: none; display: inline-grid; place-content: center; cursor: pointer; }
+input[type='checkbox']::after { content: ''; width: 10px; height: 5px; border-left: 2.5px solid var(--btn-ink); border-bottom: 2.5px solid var(--btn-ink); transform: rotate(-45deg) translate(1px, -1px); opacity: 0; }
+input[type='checkbox']:checked { background: var(--btn); border-color: var(--btn); }
+:root[data-theme='night'] input[type='checkbox']:checked { border-color: var(--mark); }
+input[type='checkbox']:checked::after { opacity: 1; }
+html { color: var(--ink); }

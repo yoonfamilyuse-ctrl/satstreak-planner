@@ -208,6 +208,12 @@ Film frames have 2 px corners; buttons and inputs 10 px; legacy cards 14 px; sma
 - **Lists:** past logs are 64 px rows with a chevron; “Add a reading” is a full-width dashed 48 px button; remove-reading is a 44 × 48 px drawn cross.
 - **Delete** is an outlined red-text button set apart at the bottom.
 
+### ISS card (Satellites tab)
+- First thing on the Satellites tab: an “ISS” badge beside a one-line answer (19 px bold), then entry and exit times at 34 px, the frame numbers for an on-time start, the band, and the detail line. A 2.5 px grease-pencil outline when the ISS crosses the frame; a 1.5 px strong rule otherwise. The ISS row in the crossing list is bold with its name in grease-pencil text.
+
+### Checkboxes
+- Drawn, not native: 22 px, 2 px ink border, 5 px corners; checked = film-black fill with a paper tick (night: black fill, red border and tick). The native checkbox draws a light tick even with `accent-color`.
+
 ### Navigation
 - Four text tabs in a row, 44 px tall, print grey; the selected tab is ink with a 2.5 px underline (red at night).
 

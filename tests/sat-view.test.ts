@@ -86,3 +86,31 @@ describe('Satellites tab: night lock written by the Log tab', () => {
     expect(lock?.history).toEqual([]);
   });
 });
+
+describe('Satellites tab: ISS first', () => {
+  it('shows the ISS crossing first, with its times and the planned frame numbers', async () => {
+    const date = '2026-11-11';
+    const ctx = ctxFor(date);
+    const el = document.createElement('div');
+    document.body.append(el);
+    await store.putSet(meta('set', Date.now()), TEXT);
+    const view = new SatView(() => ctx);
+    view.render(el);
+    await until(() => el.textContent?.includes(`Not locked for ${date}`), 3000, 'Satellites tab');
+    expect(el.querySelector('.iss-card')?.textContent).toContain('Compute crossings to see whether the ISS crosses the frame');
+    const entry = Date.UTC(2026, 10, 11, 9, 48, 18); // 18:48:18 KST
+    const exit = Date.UTC(2026, 10, 11, 9, 49, 53);
+    const iss = { norad: 25544, regime: 'LEO', name: 'ISS (ZARYA)', epoch: entry, entry, exit, entryClipped: false, exitClipped: false, maxAlt: 70, entryAz: 200, entryAlt: 40, exitAz: 100, exitAlt: 60, band: 'twilight', magRel: -1, samples: [], m1000: null, magKey: null, merged: [], train: [] };
+    const r = { objects: 1, propagationFailed: 0, mergedObjects: 0, stationMerged: 0, crossings: [iss], tracks: [], pointing: [], steps: 1, elapsedMs: 1 };
+    (view as any).result = { key: (view as any).resultKey(), setId: 'set', r, issPasses: [] };
+    view.render(el);
+    const first = el.querySelector('section.block')!;
+    const card = first.querySelector('.iss-card.yes')!;
+    expect(card.textContent).toContain('Crosses this frame tonight');
+    expect(card.textContent).toContain('18:48:18');
+    expect(card.textContent).toContain('18:49:53');
+    // 18:48:18 − 18:14:00 = 2058 s → frame 129; 18:49:53 → 2153 s → frame 135 (frameAt, 16-s interval).
+    expect(card.textContent).toContain('Frames 129–135');
+    expect(el.querySelector('tr.iss-row')).not.toBeNull();
+  });
+});
