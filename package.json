@@ -7,7 +7,8 @@
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
-    "test": "vitest run"
+    "test": "vitest run",
+    "strings:review": "node scripts/strings-review.mjs"
   },
   "dependencies": {
     "astronomy-engine": "^2.1.19",
