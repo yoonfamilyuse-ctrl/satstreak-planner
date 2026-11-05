@@ -35,6 +35,9 @@ export interface LogCtx {
   plan: NightPlan;
 }
 
+const CHEVRON = '<svg class="chev" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CHEVRON_L = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CROSS = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
 const BAND_NAME: Record<string, string> = { twilight: 'Twilight band', dark: 'Dark band', gap: 'Between bands', outside: 'Outside bands' };
 
 function download(name: string, data: BlobPart, type: string) {
@@ -198,6 +201,13 @@ export class LogView {
       return void saved.then(() => this.reload());
     }
     if (act === 'gps') return this.gps();
+    if (act === 'pick') {
+      const path = b.dataset.f!;
+      set(this.current, path, get(this.current, path) === b.dataset.v ? '' : b.dataset.v);
+      this.queueSave(this.current!);
+      this.el!.querySelectorAll<HTMLElement>(`[data-log="pick"][data-f="${path}"]`).forEach((c) => c.setAttribute('aria-pressed', String(get(this.current, path) === c.dataset.v)));
+      return;
+    }
     if (act === 'add-reading' || act === 'del-reading') {
       const side = b.dataset.side as 'clockBefore' | 'clockAfter';
       const list = this.current![side];
@@ -443,7 +453,7 @@ export class LogView {
       html: rows.length
         ? `<div class="scroll-x"><table><thead><tr><th>Conv.</th><th class="r">Frame</th><th>Band</th><th>Exposure start (true)</th><th>ISS at start (az, alt)</th><th>ISS at end</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
            <p class="note">A = EXIF marks the exposure start; B = EXIF marks the end (true start ${exp} s earlier). The ISS moves ≈ 1°/s here, so 1 s of timing error ≈ 1° along the track. Band: Sun at mid-exposure (frame start + ${exp / 2} s). ISS element epoch ${fmtDateTime(r.epoch)} KST.</p>
-           <div class="btn-row"><button type="button" class="small" data-log="iss-csv">Download ISS timing CSV</button></div>`
+           <div class="btn-row"><button type="button" data-log="iss-csv">Download ISS timing CSV</button></div>`
         : '<p class="note">The ISS does not enter this frame during the logged run (check pointing, start time and frame count).</p>',
     };
     this.paintDerived();
@@ -526,75 +536,92 @@ export class LogView {
   private listHtml(): string {
     const rows = this.logs
       .map(
-        (l) => `<tr><td><button class="linklike" data-log="open" data-id="${esc(l.id)}">${fmtShortDate(l.date)}</button><div class="sec">${esc(l.observers || '—')}</div></td>
-          <td class="tnum">${l.start ? esc(l.start.slice(11)) : '—'}</td><td class="r tnum">${l.camera.shotsTaken ?? '—'}</td></tr>`,
+        (l) => `<li><button type="button" class="log-row" data-log="open" data-id="${esc(l.id)}">
+          <span class="log-row-main"><b>${fmtShortDate(l.date)}</b><span class="sec">${esc(l.observers || 'No observers entered')}</span></span>
+          <span class="log-row-side tnum">${l.start ? esc(l.start.slice(11)) : '—'}<span class="sec">${l.camera.shotsTaken ?? '—'} frames</span></span>
+          ${CHEVRON}</button></li>`,
       )
       .join('');
-    return `<section class="card"><h2>Field log</h2>
-      <p class="note">One log per night: site (GPS), camera settings, conditions, actual start/end and the camera clock check against time.is. Saved on this device as you type.</p>
-      <div class="btn-row"><button class="primary" data-log="new">New log for ${fmtShortDate(this.ctx.date)}</button></div>
+    const hasTonight = this.logs.some((l) => l.date === this.ctx.date);
+    return `<section class="block log-intro">
+      <h2>Field log</h2>
+      <p class="note">One log per night: actual start and end, the camera clock check against time.is, conditions, camera and site. Saved on this phone as you type.</p>
+      <button type="button" class="primary big-btn" data-log="new">${hasTonight ? 'Another' : 'New'} log for ${fmtShortDate(this.ctx.date)}</button>
       ${this.status ? `<p class="note">${esc(this.status)}</p>` : ''}
     </section>
-    <section class="card"><h2>Past logs (${this.logs.length})</h2>
-      ${this.logs.length ? `<table><thead><tr><th>Night</th><th>Start</th><th class="r">Shots</th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="note">No logs yet.</p>'}
+    <section class="block"><h2>Past logs (${this.logs.length})</h2>
+      ${this.logs.length ? `<ul class="log-list">${rows}</ul>` : '<p class="note">No logs yet. Logs stay on this phone until you delete them; export each one after the night.</p>'}
     </section>`;
   }
 
   private formHtml(): string {
     const l = this.current!;
     const num = (path: string, label: string, step = 'any', extra = '') =>
-      `<label>${label}<input data-f="${path}" data-kind="num" type="number" inputmode="decimal" step="${step}" value="${get(l, path) ?? ''}" ${extra}></label>`;
+      `<label>${label}<input data-f="${path}" data-kind="num" type="number" inputmode="${step === '1' ? 'numeric' : 'decimal'}" step="${step}" value="${get(l, path) ?? ''}" ${extra}></label>`;
     const txt = (path: string, label: string, ph = '') => `<label class="full">${label}<input data-f="${path}" type="text" value="${esc(String(get(l, path) ?? ''))}" placeholder="${esc(ph)}"></label>`;
     const SRC_LABEL: Record<TimeSource, string> = { camera: 'Camera clock (EXIF)', true: 'True time (time.is)', phone: 'Phone clock (Now)' };
-    const dt = (path: 'start' | 'end', label: string) =>
-      `<label class="full">${label}<span class="dt-row"><input data-f="${path}" type="datetime-local" step="1" value="${esc(String(get(l, path) ?? ''))}"><button type="button" class="small" data-log="now" data-target="${path}">Now</button></span></label>
-      <label class="full src-row">Read from<select data-f="timeSource.${path}" aria-label="${label}: clock it was read from">${TIME_SOURCES.map((o) => `<option value="${o}"${l.timeSource[path] === o ? ' selected' : ''}>${SRC_LABEL[o]}</option>`).join('')}</select></label>`;
-    const sel = (path: string, label: string, opts: string[]) =>
-      `<label class="full">${label}<select data-f="${path}">${['', ...opts].map((o) => `<option${get(l, path) === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select></label>`;
     const plan = this.planFor(l);
-    const dateWarn = l.date !== this.ctx.date ? `<p class="note">This log is for ${esc(fmtShortDate(l.date))}; the date selector shows ${fmtShortDate(this.ctx.date)}. Plan times, bands and exports below use the log’s night.</p>` : '';
-    return `<div class="btn-row" style="margin:0 0 12px"><button data-log="back">‹ All logs</button><span class="sec" id="log-status" role="status">${esc(this.status)}</span></div>
+    const planned = (path: 'start' | 'end') => (plan?.window ? fmtHMS(path === 'start' ? plan.window.start : plan.window.end) : '—');
+    const dt = (path: 'start' | 'end', label: string) =>
+      `<div class="when">
+        <div class="when-head"><span class="when-label">${label}</span><span class="sec tnum">plan ${planned(path)}</span></div>
+        <button type="button" class="primary big-btn" data-log="now" data-target="${path}">${path === 'start' ? 'Start' : 'End'} now</button>
+        <div class="cam-grid">
+          <label>Time<input data-f="${path}" type="datetime-local" step="1" value="${esc(String(get(l, path) ?? ''))}"></label>
+          <label>Read from<select data-f="timeSource.${path}" aria-label="${label}: clock it was read from">${TIME_SOURCES.map((o) => `<option value="${o}"${l.timeSource[path] === o ? ' selected' : ''}>${SRC_LABEL[o]}</option>`).join('')}</select></label>
+        </div>
+      </div>`;
+    const CLOUDS = ['Clear', 'Thin high cloud', 'Partly cloudy', 'Mostly cloudy', 'Overcast'];
+    const chips = (path: string, opts: string[]) =>
+      `<div class="chips" role="group" aria-label="Clouds">${opts.map((o) => `<button type="button" class="chip" data-log="pick" data-f="${path}" data-v="${esc(o)}" aria-pressed="${get(l, path) === o}">${esc(o)}</button>`).join('')}</div>`;
+    const dateWarn = l.date !== this.ctx.date ? `<p class="warn">This log is for ${esc(fmtShortDate(l.date))}; the date bar shows ${fmtShortDate(this.ctx.date)}. Plan times, bands and exports here use the log’s night.</p>` : '';
+    return `<div class="log-top"><button type="button" class="pill-btn" data-log="back">${CHEVRON_L} All logs</button><span class="sec" id="log-status" role="status">${esc(this.status)}</span></div>
+    <h2 class="log-title">Log · ${fmtShortDate(l.date)}</h2>
     ${dateWarn}
-    <section class="card"><h2>Night &amp; site · ${fmtShortDate(l.date)}</h2>
+    <section class="block"><h2>Shooting</h2>
+      ${dt('start', 'Start (first frame)')}
+      ${dt('end', 'End (last frame)')}
       <div class="cam-grid">
-        <label>Night (evening date)<input data-f="date" type="date" value="${l.date}"></label>
-        ${txt('observers', 'Observers')}
-        ${num('site.latitude', 'Latitude (°N)')}${num('site.longitude', 'Longitude (°E)')}
-        ${num('site.elevation', 'Elevation (m)')}${num('site.accuracyM', 'GPS accuracy (m)')}
+        ${num('camera.shotsTaken', 'Frames taken', '1')}${num('camera.shotsPlanned', 'Number of Shots (set)', '1')}
       </div>
-      <div class="btn-row"><button data-log="gps">Use GPS</button><span class="sec">Source: ${l.site.source || '—'}</span></div>
+      <p class="note">Camera-clock times are corrected by the measured offset; time.is and phone times are used as they are. “Now” fills the phone’s time and sets the source to Phone clock.</p>
     </section>
-    <section class="card"><h2>Camera</h2>
-      <div class="cam-grid">
-        ${num('camera.azimuth', 'Azimuth (°)', '1')}${num('camera.altitude', 'Altitude (°)', '1')}
-        ${num('camera.focalLength', 'Focal length (mm)')}${num('camera.iso', 'ISO', '1')}
-        ${num('camera.aperture', 'Aperture (f/)', '0.1')}${num('camera.exposureS', 'Exposure (s)')}
-        ${num('camera.intervalS', 'Interval (s)')}${num('camera.shotsPlanned', 'Number of Shots (set)', '1')}
-        ${num('camera.shotsTaken', 'Frames actually taken', '1')}
-      </div>
+    <section class="block"><h2>Camera clock check (time.is)</h2>
+      <p class="note">For each photo of the time.is screen: the EXIF time (camera clock) and the time shown in the photo. Offset = EXIF − screen; each side uses the mean.</p>
+      ${this.readingsHtml('clockBefore', 'Before shooting')}
+      ${this.readingsHtml('clockAfter', 'After shooting')}
+      <details class="how"><summary>How to take the time.is photos</summary>
+        <p class="note">Use a <b>fast shutter speed (e.g. 1/100 s)</b> so the digits are sharp. Take <b>5–10 shots before and 5–10 after</b>, a few seconds apart, without changing the camera time settings. EXIF DateTimeOriginal has whole-second resolution (CIPA DC-008), and time.is shows whole seconds, so one reading is only good to about ±1 s. Readings taken at different fractions of a second average to a much better estimate. If your files contain <code>SubSecTimeOriginal</code> (check with <code>exiftool -time:all</code>), enter the EXIF time to the second and note the fraction in Notes.</p>
+      </details>
     </section>
-    <section class="card"><h2>Conditions</h2>
+    <section class="block"><h2>Conditions</h2>
+      <span class="field-label">Clouds</span>
+      ${chips('clouds', CLOUDS)}
       <div class="cam-grid">
-        ${sel('clouds', 'Clouds', ['Clear', 'Thin high cloud', 'Partly cloudy', 'Mostly cloudy', 'Overcast'])}
         ${txt('weather', 'Weather (wind, humidity, dew, temperature)')}
         ${txt('moon', 'Moon')}
         <label class="full">Notes (airplanes, lights, interruptions)<textarea data-f="notes" rows="4">${esc(l.notes)}</textarea></label>
       </div>
     </section>
-    <section class="card"><h2>Actual start / end</h2>
+    <section class="block"><h2>Camera</h2>
       <div class="cam-grid">
-        ${dt('start', 'Start (first frame)')}${dt('end', 'End (last frame)')}
+        ${num('camera.azimuth', 'Azimuth (°)', '1')}${num('camera.altitude', 'Altitude (°)', '1')}
+        ${num('camera.focalLength', 'Focal length (mm)')}${num('camera.iso', 'ISO', '1')}
+        ${num('camera.aperture', 'Aperture (f/)', '0.1')}${num('camera.exposureS', 'Exposure (s)')}
+        ${num('camera.intervalS', 'Interval (s)')}
       </div>
-      <p class="note">Camera-clock times are corrected by the measured offset; true and phone times are used as they are. "Now" fills the phone’s time and sets the source to Phone clock.</p>
-      <p class="note">Plan: start ${plan?.window ? fmtHMS(plan.window.start) : '—'}, end ${plan?.window ? fmtHMS(plan.window.end) : '—'} KST.</p>
     </section>
-    <section class="card"><h2>Camera clock check (time.is)</h2>
-      <p class="note"><b>How to take the time.is photos:</b> use a <b>fast shutter speed (e.g. 1/100 s)</b> so the digits are sharp. Take <b>5–10 shots before and 5–10 after</b>, a few seconds apart, without changing the camera time settings. EXIF DateTimeOriginal has whole-second resolution (CIPA DC-008), and time.is shows whole seconds, so one reading is only good to about ±1 s. Readings taken at different fractions of a second average to a much better estimate. If your files contain <code>SubSecTimeOriginal</code> (check with <code>exiftool -time:all</code>), enter the EXIF time to the second and note the fraction in Notes.</p>
-      <p class="note">For each photo: EXIF time (camera clock) and the time shown on the screen in it. Offset = EXIF − screen; each side uses the mean.</p>
-      ${this.readingsHtml('clockBefore', 'Before shooting')}
-      ${this.readingsHtml('clockAfter', 'After shooting')}
+    <section class="block"><h2>Night &amp; site</h2>
+      <div class="cam-grid">
+        <label>Night (evening date)<input data-f="date" type="date" value="${l.date}"></label>
+        ${num('site.accuracyM', 'GPS accuracy (m)')}
+        ${txt('observers', 'Observers')}
+        ${num('site.latitude', 'Latitude (°N)')}${num('site.longitude', 'Longitude (°E)')}
+        ${num('site.elevation', 'Elevation (m)')}
+      </div>
+      <div class="btn-row"><button type="button" data-log="gps">Use GPS</button><span class="sec">Source: ${l.site.source || '—'}</span></div>
     </section>
-    <section class="card"><h2>Timing for band sorting</h2>
+    <section class="block"><h2>Timing for band sorting</h2>
       <div id="log-derived"></div>
       <h3>Photo → band</h3>
       <div class="cam-grid">
@@ -607,12 +634,12 @@ export class LogView {
       <div class="btn-row"><button type="button" data-log="iss-check">Predict ISS positions per frame</button></div>
       <div id="log-iss"></div>
     </section>
-    <section class="card"><h2>Export</h2>
+    <section class="block"><h2>Export</h2>
       <p class="note">${l.elementSetId ? `Element set: ${this.setMeta ? `${esc(this.setMeta.label)}, downloaded ${fmtDateTime(this.setMeta.downloadedAt)} KST` : esc(l.elementSetId)}` : `<b>No element set locked for ${l.date}.</b> The export needs the elements used that night.`}</p>
-      ${l.elementSetId ? '' : '<div class="btn-row"><button data-log="lock-latest">Lock the most recent element set for this night</button></div>'}
-      <div class="btn-row"><button class="primary" data-log="zip">Download bundle (.zip)</button><button data-log="csv">CSV</button><button data-log="json">JSON</button></div>
+      ${l.elementSetId ? '' : '<div class="btn-row"><button type="button" data-log="lock-latest">Lock the most recent element set for this night</button></div>'}
+      <div class="btn-row"><button type="button" class="primary" data-log="zip">Download bundle (.zip)</button><button type="button" data-log="csv">CSV</button><button type="button" data-log="json">JSON</button></div>
       <p class="note">The bundle contains the log (CSV + JSON), the night’s elements as TLE text (.txt) plus the original OMM JSON (needed for 6-digit catalog numbers), and a README.</p>
-      <div class="btn-row"><button data-log="delete">Delete log</button></div>
+      <div class="btn-row danger-row"><button type="button" class="danger" data-log="delete">Delete log</button></div>
     </section>`;
   }
 
@@ -620,13 +647,13 @@ export class LogView {
     const list = this.current![side];
     const rows = list
       .map(
-        (c, i) => `<div class="reading"><span class="sec">#${i + 1}</span>
-          <label>EXIF<input data-f="${side}.${i}.exif" type="datetime-local" step="1" value="${esc(c.exif)}"></label>
-          <label>time.is<input data-f="${side}.${i}.actual" type="datetime-local" step="1" value="${esc(c.actual)}"></label>
-          <button type="button" class="small" data-log="del-reading" data-side="${side}" data-i="${i}" aria-label="Remove reading ${i + 1}">✕</button></div>`,
+        (c, i) => `<div class="reading"><span class="reading-n tnum">${i + 1}</span>
+          <label>EXIF time<input data-f="${side}.${i}.exif" type="datetime-local" step="1" value="${esc(c.exif)}"></label>
+          <label>time.is screen<input data-f="${side}.${i}.actual" type="datetime-local" step="1" value="${esc(c.actual)}"></label>
+          <button type="button" class="icon-btn" data-log="del-reading" data-side="${side}" data-i="${i}" aria-label="Remove reading ${i + 1}">${CROSS}</button></div>`,
       )
       .join('');
-    return `<h3>${title}</h3>${rows}<div class="btn-row"><button type="button" class="small" data-log="add-reading" data-side="${side}">+ Add reading</button></div>`;
+    return `<h3>${title}</h3>${rows}<button type="button" class="add-btn" data-log="add-reading" data-side="${side}">Add a reading</button>`;
   }
 
   private paintDerived() {

@@ -309,3 +309,31 @@ describe('Log tab: mid-exposure band rule', () => {
     ]);
   });
 });
+
+describe('Log tab: field layout', () => {
+  it('cloud chips set, change and clear the clouds field, and save it', async () => {
+    const { el } = mount();
+    await newLog(el);
+    const chip = (v: string) => q<HTMLButtonElement>(el, `[data-log="pick"][data-f="clouds"][data-v="${v}"]`)!;
+    fire(chip('Partly cloudy'), 'click');
+    expect(chip('Partly cloudy').getAttribute('aria-pressed')).toBe('true');
+    fire(chip('Clear'), 'click');
+    expect(chip('Clear').getAttribute('aria-pressed')).toBe('true');
+    expect(chip('Partly cloudy').getAttribute('aria-pressed')).toBe('false');
+    await sleep(700);
+    expect((await store.listLogs())[0].clouds).toBe('Clear');
+    fire(chip('Clear'), 'click'); // tapping the chosen chip again clears it
+    await sleep(700);
+    expect((await store.listLogs())[0].clouds).toBe('');
+  });
+
+  it('puts Shooting first, with large Start/End now buttons, and every log control at least 44 px by design', async () => {
+    const { el } = mount();
+    await newLog(el);
+    expect(q(el, 'section.block h2')!.textContent).toBe('Shooting');
+    expect(q(el, '[data-log="now"][data-target="start"]')!.classList.contains('big-btn')).toBe(true);
+    expect(q(el, '[data-log="now"][data-target="end"]')!.classList.contains('big-btn')).toBe(true);
+    // No 32-px "small" buttons remain in the log form.
+    expect(el.querySelectorAll('button.small').length).toBe(0);
+  });
+});

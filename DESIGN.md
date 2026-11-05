@@ -200,6 +200,14 @@ Film frames have 2 px corners; buttons and inputs 10 px; legacy cards 14 px; sma
 - Raised paper, 1 px strong rule, 10 px radius, 44 px tall, 16 px text (no iOS zoom). Focus: 2 px grease-pencil outline.
 - The date field is an invisible native date input laid over the date label, so tapping the date opens the iOS picker.
 
+### Field entry (Log tab)
+- **Order of use on site:** Shooting (start, end, frames) → time.is clock check → conditions → camera → night & site → band timing → export. Reference notes sit in collapsible “How to…” rows (44 px summary).
+- **Big action:** “Start now / End now” are full-width primary buttons, 56 px tall, 18 px bold.
+- **Fields:** 48 px tall, 17 px text, labels 13 px above. Time and its source each take a full row.
+- **Choice chips:** single-choice values (clouds) are 48 px pill chips; the chosen one is filled film black (night: dark red fill, red outline). Tapping it again clears it.
+- **Lists:** past logs are 64 px rows with a chevron; “Add a reading” is a full-width dashed 48 px button; remove-reading is a 44 × 48 px drawn cross.
+- **Delete** is an outlined red-text button set apart at the bottom.
+
 ### Navigation
 - Four text tabs in a row, 44 px tall, print grey; the selected tab is ink with a 2.5 px underline (red at night).
 
