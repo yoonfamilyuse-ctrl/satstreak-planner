@@ -344,7 +344,7 @@ Suggested citation: D. Cross, *Astronomy Engine* v2.1.19, https://github.com/cos
 
 ## Night mode
 
-The "Night mode" button switches to pure red on black and is remembered on the device. Use the ‹ › buttons to change the date at night: the phone's native date-picker popup is drawn by the OS and may be bright. Turn down screen brightness as well.
+The "Night" button switches to pure red on black and is remembered on the device. If night mode is off, the app turns it on by itself while the Sun's centre is below −6° (end of civil twilight; geometric altitude, the same astronomy-engine `SearchAltitude` method as the night plan) at the saved site, already on the first paint, with a "Switch to day mode" link. Choosing day mode is remembered until the next evening. Because the first-paint script cannot load astronomy-engine, the app stores the −6° evening and morning times for the next 16 nights (`src/autonight.ts`) and the script compares the clock with them; the very first visit at night therefore shows the paper screen for a moment. Use the ‹ › buttons to change the date at night: the phone's native date-picker popup is drawn by the OS and may be bright. Turn down screen brightness as well.
 
 ## Project layout
 
@@ -374,6 +374,7 @@ src/log/fieldlog.ts    field-log model, clock offset, frame/band timing, CSV
 src/log/zip.ts         minimal ZIP writer for the export bundle
 src/ui/log-view.ts     Log tab
 src/main.ts            app shell, routing, site editing, night mode
+src/autonight.ts       automatic night mode (Sun below −6°)
 tests/                 unit tests, independent NOAA solar check, ISS vs Heavens-Above
 tests/fixtures/        17-object subset of the real 2026-11-04 CelesTrak download (incl. 6-digit objects)
 .github/workflows/     GitHub Pages deployment

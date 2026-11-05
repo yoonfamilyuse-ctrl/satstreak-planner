@@ -218,6 +218,7 @@ Film frames have 2 px corners; buttons and inputs 10 px; legacy cards 14 px; sma
 - **Do** use the same tokens in both modes; night mode only re-values them.
 - **Do** keep red for bands, now and next.
 - **Do** set `theme-color` to #e9e7e2 by day and #000000 at night, before first paint.
+- **Do** open in night mode automatically while the Sun is below −6° at the saved site (unless the user chose day mode for that night), with a 44 px "Switch to day mode" link under the top bar.
 
 ### Don't:
 - **Don't** introduce white, grey, green or blue in night mode, including native controls.

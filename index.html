@@ -9,7 +9,22 @@
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23000'/%3E%3Cpath d='M5 25 27 7' stroke='%23e00' stroke-width='3'/%3E%3C/svg%3E" />
     <script>
       // Apply night mode before first paint so the screen never flashes white.
-      try { if (localStorage.getItem('satstreak.night') === '1') { document.documentElement.dataset.theme = 'night'; document.querySelector('meta[name="theme-color"]').setAttribute('content', '#000000'); } } catch (e) {}
+      // Night mode before first paint, so the screen never flashes the paper colour at night: on if the user
+      // switched it on, or automatically while the Sun is below -6 deg at the saved site (spans precomputed by
+      // src/autonight.ts) unless the user chose day mode for that night. Keep in sync with autonight.ts.
+      try {
+        var t = Date.now(), mode = localStorage.getItem('satstreak.night') === '1' ? 'night' : 'day';
+        if (mode === 'day') {
+          var d = JSON.parse(localStorage.getItem('satstreak.darkSpans') || 'null'), o = localStorage.getItem('satstreak.nightOverride');
+          var sp = (d && d.spans) || [];
+          for (var i = 0; i < sp.length; i++) if (t >= sp[i][0] && t < sp[i][1]) { if (String(sp[i][0]) !== o) mode = 'auto'; break; }
+        }
+        if (mode !== 'day') {
+          document.documentElement.dataset.theme = 'night';
+          if (mode === 'auto') document.documentElement.dataset.auto = '1';
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#000000');
+        }
+      } catch (e) {}
     </script>
   </head>
   <body>

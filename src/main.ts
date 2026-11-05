@@ -9,8 +9,8 @@ import { NightView } from './ui/night-view';
 import { renderOutlook, type ForecastStatus } from './ui/outlook-view';
 import { SatView } from './ui/sat-view';
 import { LogView } from './ui/log-view';
+import { AUTO_NIGHT_ALT, currentDecision, refreshSpans, userSetNight, type ThemeDecision } from './autonight';
 
-const NIGHT_KEY = 'satstreak.night';
 const CHEVRON_LEFT = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const CHEVRON_RIGHT = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 type View = 'night' | 'outlook' | 'sats' | 'log';
@@ -31,6 +31,10 @@ app.innerHTML = `
     <h1>Sat-Streak Planner</h1>
     <button id="night-toggle" type="button" aria-pressed="false">Night</button>
   </header>
+  <div class="autonight" id="autonight" hidden>
+    <span>Auto night: Sun below ${AUTO_NIGHT_ALT}°</span>
+    <button type="button" id="day-mode" class="text-btn">Switch to day mode</button>
+  </div>
   <nav class="tabs" role="tablist">
     <button type="button" role="tab" data-view="night">Night</button>
     <button type="button" role="tab" data-view="outlook">14 nights</button>
@@ -83,20 +87,34 @@ const nightBtn = $<HTMLButtonElement>('#night-toggle');
 
 // ---------- night mode ----------
 
-function setNight(on: boolean) {
-  if (on) document.documentElement.dataset.theme = 'night';
-  else delete document.documentElement.dataset.theme;
+// Night mode is on when the user switched it on, or automatically while the Sun is below −6° at the saved site
+// (unless the user chose day mode for that night). See autonight.ts; the same rule runs before first paint in
+// index.html.
+function applyTheme(dec: ThemeDecision = currentDecision()) {
+  const root = document.documentElement;
+  const on = dec !== 'day';
+  if (on) root.dataset.theme = 'night';
+  else delete root.dataset.theme;
+  if (dec === 'auto-night') root.dataset.auto = '1';
+  else delete root.dataset.auto;
+  $('#autonight').hidden = dec !== 'auto-night';
   nightBtn.setAttribute('aria-pressed', String(on));
   nightBtn.textContent = on ? 'Night on' : 'Night';
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', on ? '#000000' : '#e9e7e2');
-  try {
-    localStorage.setItem(NIGHT_KEY, on ? '1' : '0');
-  } catch {
-    /* ignore */
-  }
 }
-nightBtn.addEventListener('click', () => setNight(document.documentElement.dataset.theme !== 'night'));
-setNight(document.documentElement.dataset.theme === 'night');
+nightBtn.addEventListener('click', () => {
+  userSetNight(document.documentElement.dataset.theme !== 'night');
+  applyTheme();
+});
+$('#day-mode').addEventListener('click', () => {
+  userSetNight(false);
+  applyTheme();
+});
+refreshSpans(state.site);
+applyTheme();
+// iOS Safari often resumes a tab without reloading it: check again when the app comes back and every minute.
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && applyTheme());
+setInterval(() => applyTheme(), 60_000);
 
 // ---------- routing: #outlook, #YYYY-MM-DD (night plan), #sats/YYYY-MM-DD ----------
 
@@ -144,6 +162,8 @@ function fillSiteForm(s: Site) {
 
 function setSite(s: Site) {
   state.site = s;
+  refreshSpans(s);
+  applyTheme();
   fillSiteForm(s);
   loadForecast();
 }

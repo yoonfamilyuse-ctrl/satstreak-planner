@@ -372,3 +372,8 @@ button.linklike { border: 0; background: none; padding: 0; min-height: 32px; col
 .reading label { display: grid; gap: 2px; font-size: 12px; color: var(--muted); }
 .reading input { font-size: 15px; padding: 0 4px; }
 @media (max-width: 420px) { .reading { grid-template-columns: auto 1fr auto; } .reading label:nth-of-type(2) { grid-column: 2; } }
+
+/* ---------- automatic night mode notice ---------- */
+.autonight { display: flex; align-items: center; justify-content: space-between; gap: 8px; max-width: 680px; margin: 0 auto; padding: 0 16px; min-height: 44px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--rule); }
+.text-btn { border: 0; background: none; min-height: 44px; padding: 0 4px; font-weight: 700; color: var(--mark); text-decoration: underline; text-underline-offset: 3px; flex: none; }
+.text-btn:active { background: none; }
