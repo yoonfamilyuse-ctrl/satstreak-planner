@@ -115,12 +115,25 @@ export class SatView {
     if (this.ctx.date !== this.nightDate) {
       this.nightDate = this.ctx.date;
       this.night = null;
-      void getNightSet(this.ctx.date).then((n) => {
-        this.night = n;
-        this.paint();
-      });
     }
+    // Re-read the lock on every render: the Log tab can lock a night too, so a cached value may be stale.
+    void this.refreshLock();
     this.paint();
+  }
+
+  /** Reload the night lock (and the per-set lock list) from storage; repaint if it changed. */
+  private async refreshLock(): Promise<void> {
+    const date = this.ctx.date;
+    try {
+      const [n, all] = await Promise.all([getNightSet(date), listNightSets()]);
+      if (date !== this.ctx.date) return; // the date changed meanwhile
+      const changed = JSON.stringify(n) !== JSON.stringify(this.night) || all.length !== this.nightLocks.size;
+      this.night = n;
+      this.nightLocks = new Map(all.map((x) => [x.date, x]));
+      if (changed) this.paint();
+    } catch {
+      /* storage errors are reported by reloadSets */
+    }
   }
 
   detach() {
@@ -413,6 +426,7 @@ export class SatView {
 
   private async predict() {
     const w = this.ctx.plan.window;
+    await this.refreshLock(); // never auto-lock over a lock made elsewhere (Log tab) since the last render
     const setId = this.activeId();
     if (!w) return void (this.msg = { text: 'No shooting window on this date.', kind: 'error' }), this.paint();
     if (!setId) return void (this.msg = { text: 'Load an element set first.', kind: 'error' }), this.paint();
