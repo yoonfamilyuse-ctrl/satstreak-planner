@@ -1,6 +1,6 @@
 import { CRITERIA, type OutlookNight, type Rating } from '../outlook';
 import { fmtHM, fmtShortDate, kstNoon } from '../time';
-import { cloudText, esc, moonIcon, OPEN_METEO_ATTRIBUTION } from './util';
+import { cloudText, esc, moonIcon, openMeteoAttribution } from './util';
 
 export type ForecastStatus =
   | { state: 'loading' }
@@ -29,7 +29,7 @@ export function renderOutlook(nights: OutlookNight[], fs: ForecastStatus): strin
   const head = `<section class="block ol-head">
     <h2>Next 14 nights</h2>
     <p class="note">${goodCount ? `<b>${goodCount}</b> good night${goodCount > 1 ? 's' : ''}, circled.` : 'No night meets the “good” criteria yet.'} Tap a night for its schedule.</p>
-    <div class="fc-status"><span>${status} ${OPEN_METEO_ATTRIBUTION} (CC BY 4.0)</span><button type="button" id="fc-refresh"${fs.state === 'loading' ? ' disabled' : ''}>Refresh</button></div>
+    <div class="fc-status"><span>${status} ${openMeteoAttribution()} (CC BY 4.0)</span><button type="button" id="fc-refresh"${fs.state === 'loading' ? ' disabled' : ''}>Refresh</button></div>
   </section>`;
   const legend = `<div class="ol-legend" aria-hidden="true">
     <span><i class="lg-film"></i>shooting window</span><span><i class="lg-band"></i>twilight / dark band</span><span><i class="lg-moon"></i>Moon up</span>

@@ -1,4 +1,6 @@
 import type { CloudAverage } from '../weather/openmeteo';
+import { compass } from '../astro/moon';
+import { S } from '../i18n';
 
 export const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -6,10 +8,16 @@ export const esc = (s: string) =>
 export const deg = (x: number, digits = 1) => `${x.toFixed(digits)}°`;
 
 export function cloudText(c: CloudAverage | null): string {
-  if (!c) return 'no forecast';
+  if (!c) return S().common.cloudNone;
   const r = Math.round;
-  return `${r(c.total)}% total · low ${r(c.low)} / mid ${r(c.mid)} / high ${r(c.high)}`;
+  return S().common.cloud(r(c.total), r(c.low), r(c.mid), r(c.high));
 }
+
+/** Compass point (N, NNE, …) of an azimuth, in the current language. */
+export const dir = (az: number) => {
+  const c = compass(az);
+  return S().common.compass[c] ?? c;
+};
 
 /** Moon phase glyph. Lit limb on the right when waxing (northern-hemisphere view). */
 export function moonIcon(illum: number, waxing: boolean, size = 48): string {
@@ -23,5 +31,5 @@ export function moonIcon(illum: number, waxing: boolean, size = 48): string {
 }
 
 /** Open-Meteo data are CC BY 4.0: attribution must accompany every display of cloud data. */
-export const OPEN_METEO_ATTRIBUTION =
-  '<a class="attrib" href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a>';
+export const openMeteoAttribution = () =>
+  `<a class="attrib" href="https://open-meteo.com/" target="_blank" rel="noopener">${S().common.attribution}</a>`;

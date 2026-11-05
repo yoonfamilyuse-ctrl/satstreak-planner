@@ -90,3 +90,25 @@ describe('Night view (contact sheet)', () => {
     expect(text(el)).toContain('Astronomical twilight ends');
   });
 });
+
+describe('Night view in Korean', () => {
+  it('uses the glossary terms and short step labels; times and frame numbers unchanged', async () => {
+    const { setLang } = await import('../src/i18n');
+    setLang('ko');
+    try {
+      const { el } = mount('2026-11-11T10:41:00Z');
+      const t = text(el);
+      expect(text(el.querySelector('.now-big'))).toBe('327');
+      expect(text(el.querySelector('#now-block'))).toContain('어두운 구간');
+      expect(text(el.querySelector('#now-block'))).toContain('프레임 268–456');
+      expect(text(el.querySelector('#next-step'))).toContain('어두운 구간 끝 (−35°)');
+      expect(text(el.querySelector('#next-step'))).toContain('20:15:40');
+      expect(t).toContain('도착해서 장비 설치');
+      expect(t).toContain('박명 구간 시작 (−12°)');
+      expect(t).toContain('KASI (astro.kasi.re.kr)'); // citation kept
+      expect(t).not.toMatch(/Twilight band|Dark band|Field timeline/);
+    } finally {
+      setLang('en');
+    }
+  });
+});

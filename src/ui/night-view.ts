@@ -1,10 +1,11 @@
 import { BANDS, CAMERA, WINDOW_MARGIN_MIN } from '../config';
 import { frameAt, type BandSpan, type NightPlan } from '../astro/schedule';
-import { compass } from '../astro/moon';
 import { sunAltitude, SUN_ALTITUDES, type SunAltitude } from '../astro/sun';
 import type { CloudAverage } from '../weather/openmeteo';
 import { fmtDuration, fmtHM, fmtHMS, todayKST } from '../time';
-import { cloudText, deg, esc, moonIcon, OPEN_METEO_ATTRIBUTION } from './util';
+import { cloudText, deg, dir, esc, moonIcon, openMeteoAttribution } from './util';
+import { moonPhase, S } from '../i18n';
+import { stepKey, stepLabel } from './steps';
 
 /**
  * Night plan view (Stage 1), "contact sheet" layout:
@@ -155,17 +156,21 @@ const frameStart = (p: NightPlan, n: number) => new Date(p.window!.start.getTime
 
 const pct = (p: NightPlan, n: number) => ((n - 1) / Math.max(1, p.window!.shots - 1)) * 100;
 
+const bandName = (key: 'twilight' | 'dark') => S().common.band[key];
+
+/** The plan's warnings, in the current language (same rule as computeNight: a band edge the Sun never reaches). */
 function warnings(p: NightPlan): string {
-  return p.warnings.map((w) => `<div class="warn" role="alert">${esc(w)}</div>`).join('');
+  const alts = ([-12, -20, -25, -35] as const).filter((a) => !p.sun.descending[a]);
+  return alts.map((a) => `<div class="warn" role="alert">${esc(S().night.warnNoAlt(a, a <= -25))}</div>`).join('');
 }
 
 function noWindow(): string {
-  return `<section class="block"><h2>Shooting window</h2><p>No complete window this night (see the warning above).</p></section>`;
+  return `<section class="block"><h2>${S().night.noWindowTitle}</h2><p>${S().night.noWindow}</p></section>`;
 }
 
 function liveBlock(): string {
   return `<div class="nightbar" id="nightbar"></div>
-    <div class="strip" id="strip" role="group" aria-label="All frames of the night. Tap a frame for its time."><div class="strip-row" id="strip-row"></div></div>
+    <div class="strip" id="strip" role="group" aria-label="${S().night.stripAria}"><div class="strip-row" id="strip-row"></div></div>
     <div class="strip-info" id="strip-info" aria-live="polite"></div>
     <div class="now" id="now-block"></div>
     <div class="next-step" id="next-step"></div>`;
@@ -180,7 +185,7 @@ function nightBar(p: NightPlan, s: Now, selected: number | null): string {
     .map((b) => `<span class="nb-band" style="left:${pct(p, b.plannedFirst!)}%;width:${pct(p, b.plannedLast!) - pct(p, b.plannedFirst!)}%"></span>`)
     .join('');
   return `<span class="nb-end tnum">${fmtHM(w.start, d)}</span>
-    <button type="button" class="nb-btn" id="nightbar-btn" aria-label="Whole night, frames 1 to ${w.shots}. Tap to look at a frame.">
+    <button type="button" class="nb-btn" id="nightbar-btn" aria-label="${S().night.barAria(w.shots)}">
       <span class="nb-track"><span class="nb-shot" style="width:${shot}%"></span></span>${bands}
       ${s.phase === 'during' ? `<span class="nb-now" style="left:${pct(p, s.frame!)}%"></span>` : ''}
       ${selected !== null ? `<span class="nb-sel" style="left:${pct(p, selected)}%"></span>` : ''}
@@ -194,10 +199,11 @@ function stripFrames(p: NightPlan): string {
   for (let n = 1; n <= p.window!.shots; n++) {
     const b = bandOfFrame(p, n);
     const key = b?.key ?? '';
-    const edge = b && key !== prevKey ? (key === 'twilight' ? 'TWILIGHT' : 'DARK') : b ? (key === 'twilight' ? 'TW' : 'DK') : '';
+    const E = S().night.edge;
+    const edge = b && key !== prevKey ? (key === 'twilight' ? E.twilight : E.dark) : b ? (key === 'twilight' ? E.twilightShort : E.darkShort) : '';
     prevKey = key;
     out.push(
-      `<button type="button" class="fr${b ? ' inband' : ''}" data-n="${n}" tabindex="-1" aria-label="Frame ${n}${b ? `, ${b.label.toLowerCase()}` : ''}"><span class="fr-n tnum">${n}</span><span class="fr-img"></span><span class="fr-b">${edge}</span></button>`,
+      `<button type="button" class="fr${b ? ' inband' : ''}" data-n="${n}" tabindex="-1" aria-label="${S().night.frameAria(n, b ? bandName(b.key) : null)}"><span class="fr-n tnum">${n}</span><span class="fr-img"></span><span class="fr-b">${edge}</span></button>`,
     );
   }
   return out.join('');
@@ -207,33 +213,37 @@ function stripInfo(p: NightPlan, s: Now, selected: number | null): string {
   if (selected !== null) {
     const st = frameStart(p, selected);
     const b = bandOfFrame(p, selected);
-    return `<span><b class="tnum">Frame ${selected}</b> · <span class="tnum">${fmtHMS(st, p.dateStr)}–${fmtHMS(new Date(st.getTime() + CAMERA.exposureS * 1000), p.dateStr)}</span> · ${b ? `<span class="mark-text">${esc(b.label)}</span>` : 'no band'}</span>
-      <button type="button" class="pill-btn" id="strip-now">${s.phase === 'during' ? 'Now' : 'Back'}</button>`;
+    const N = S().night;
+    return `<span><b class="tnum">${N.frame(selected)}</b> · <span class="tnum">${fmtHMS(st, p.dateStr)}–${fmtHMS(new Date(st.getTime() + CAMERA.exposureS * 1000), p.dateStr)}</span> · ${b ? `<span class="mark-text">${esc(bandName(b.key))}</span>` : N.noBand}</span>
+      <button type="button" class="pill-btn" id="strip-now">${s.phase === 'during' ? N.now : N.back}</button>`;
   }
-  const lead = s.phase === 'during' ? `Frame ${s.frame} is being exposed` : s.phase === 'after' ? 'All frames shot' : `Frame 1 starts at ${fmtHMS(p.window!.start, p.dateStr)}`;
-  return `<span>${lead} · tap a frame for its time</span>`;
+  const N = S().night;
+  const lead = s.phase === 'during' ? N.leadDuring(s.frame!) : s.phase === 'after' ? N.leadAfter : N.leadBefore(fmtHMS(p.window!.start, p.dateStr));
+  return `<span>${lead} · ${N.tapHint}</span>`;
 }
 
 function nowBlock(p: NightPlan, s: Now, t: number): string {
   const w = p.window!;
   const d = p.dateStr;
+  const N = S().night;
   if (s.phase === 'during') {
     const b = bandOfFrame(p, s.frame!);
     const where = b
-      ? `<span class="now-band mark-text">${esc(b.label)}</span><span class="now-sub tnum">frames ${b.plannedFirst}–${b.plannedLast}</span>`
-      : `<span class="now-band">${s.frame! < (p.bands[0].plannedFirst ?? 0) ? 'Before the twilight band' : s.frame! < (p.bands[1].plannedFirst ?? Infinity) ? 'Between the bands' : 'After the dark band'}</span><span class="now-sub">no band</span>`;
-    return `<span class="now-big tnum" aria-label="Frame ${s.frame}">${s.frame}</span><span class="now-text"><span class="now-sub tnum">frame now, of ${w.shots}</span>${where}</span>`;
+      ? `<span class="now-band mark-text">${esc(bandName(b.key))}</span><span class="now-sub tnum">${N.framesRange(b.plannedFirst!, b.plannedLast!)}</span>`
+      : `<span class="now-band">${s.frame! < (p.bands[0].plannedFirst ?? 0) ? N.beforeTwilight : s.frame! < (p.bands[1].plannedFirst ?? Infinity) ? N.between : N.afterDark}</span><span class="now-sub">${N.noBand}</span>`;
+    return `<span class="now-big tnum" aria-label="${N.frame(s.frame!)}">${s.frame}</span><span class="now-text"><span class="now-sub tnum">${N.frameNowOf(w.shots)}</span>${where}</span>`;
   }
   if (s.phase === 'after') {
-    return `<span class="now-big tnum">${w.shots}</span><span class="now-text"><span class="now-sub">frames planned</span><span class="now-band">Shooting done</span><span class="now-sub tnum">ended ${fmtHMS(w.end, d)}</span></span>`;
+    return `<span class="now-big tnum">${w.shots}</span><span class="now-text"><span class="now-sub">${N.framesPlanned}</span><span class="now-band">${N.done}</span><span class="now-sub tnum">${N.ended(fmtHMS(w.end, d))}</span></span>`;
   }
-  const lead = s.phase === 'before' ? `starts in ${fmtDuration(w.start.getTime() - t)}` : `${fmtDuration(w.durationMs)} · ${w.shots} frames`;
-  return `<span class="now-big tnum">${fmtHM(w.start, d)}</span><span class="now-text"><span class="now-sub">start shooting</span><span class="now-band">${lead}</span><span class="now-sub tnum">frame 1 at ${fmtHMS(w.start, d)}</span></span>`;
+  const lead = s.phase === 'before' ? N.startsIn(fmtDuration(w.start.getTime() - t)) : N.durFrames(fmtDuration(w.durationMs), w.shots);
+  return `<span class="now-big tnum">${fmtHM(w.start, d)}</span><span class="now-text"><span class="now-sub">${N.startShooting}</span><span class="now-band">${lead}</span><span class="now-sub tnum">${N.frame1At(fmtHMS(w.start, d))}</span></span>`;
 }
 
 function nextStep(p: NightPlan, next: NightPlan['timeline'][number], t: number): string {
-  return `<span class="ns-what"><span class="now-sub">Next</span><b>${esc(next.label)}</b></span>
-    <span class="ns-when"><b class="mark-text tnum">${fmtHMS(next.time, p.dateStr)}</b><span class="now-sub tnum">in ${fmtDuration(next.time.getTime() - t)}</span></span>`;
+  const N = S().night;
+  return `<span class="ns-what"><span class="now-sub">${N.next}</span><b>${esc(stepLabel(next))}</b></span>
+    <span class="ns-when"><b class="mark-text tnum">${fmtHMS(next.time, p.dateStr)}</b><span class="now-sub tnum">${N.inDur(fmtDuration(next.time.getTime() - t))}</span></span>`;
 }
 
 function timelineCard(p: NightPlan): string {
@@ -241,13 +251,15 @@ function timelineCard(p: NightPlan): string {
   const d = p.dateStr;
   const rows = p.timeline
     .map((it) => {
-      const key = /^(Start|End) shooting/.test(it.label) ? ' key' : '';
-      return `<li class="${it.kind === 'band' ? 'band' : 'task'}${key}" data-t="${it.time.getTime()}"><span class="tl-t tnum">${fmtHMS(it.time, d)}</span><span class="tl-l">${esc(it.label)}</span><span class="tl-f tnum">${it.frame ?? ''}</span></li>`;
+      const k = stepKey(it);
+      const key = k === 'start' || k === 'end' ? ' key' : '';
+      return `<li class="${it.kind === 'band' ? 'band' : 'task'}${key}" data-t="${it.time.getTime()}"><span class="tl-t tnum">${fmtHMS(it.time, d)}</span><span class="tl-l">${esc(stepLabel(it))}</span><span class="tl-f tnum">${it.frame ?? ''}</span></li>`;
     })
     .join('');
-  return `<section class="block"><h2>Field timeline</h2>
-    <ol class="tl" id="timeline" aria-label="Field timeline, KST">${rows}</ol>
-    <p class="note">The right column is the frame number if shooting starts exactly on time: for steps, the frame being exposed at that moment; for band rows, the band’s first or last frame. A frame belongs to a band if the Sun’s altitude at its mid-exposure (frame start + exposure/2) is inside the band. Use the time.is photos to correct for the camera clock.</p>
+  const N = S().night;
+  return `<section class="block"><h2>${N.timelineTitle}</h2>
+    <ol class="tl" id="timeline" aria-label="${N.timelineAria}">${rows}</ol>
+    <p class="note">${N.timelineNote}</p>
   </section>`;
 }
 
@@ -255,41 +267,35 @@ function summaryCard(p: NightPlan, cloud: CloudAverage | null | undefined): stri
   const w = p.window;
   if (!w) return '';
   const d = p.dateStr;
+  const N = S().night;
   const band = (b: BandSpan) =>
-    `<div class="fact"><span class="fact-k">${esc(b.label)} <span class="tnum">${b.from}° → ${b.to}°</span></span><b class="tnum">${b.plannedFirst !== null ? `${b.plannedFirst}–${b.plannedLast}` : '—'}</b>
-      <span class="fact-s tnum">${fmtHM(b.start, d)}–${fmtHM(b.end, d)} · ${b.start && b.end ? fmtDuration(b.end.getTime() - b.start.getTime()) : '—'} · ${b.frames ?? '—'} frames</span></div>`;
-  return `<section class="block"><h2>Shooting window</h2>
+    `<div class="fact"><span class="fact-k">${esc(bandName(b.key))} <span class="tnum">${b.from}° → ${b.to}°</span></span><b class="tnum">${b.plannedFirst !== null ? `${b.plannedFirst}–${b.plannedLast}` : '—'}</b>
+      <span class="fact-s tnum">${fmtHM(b.start, d)}–${fmtHM(b.end, d)} · ${b.start && b.end ? fmtDuration(b.end.getTime() - b.start.getTime()) : '—'} · ${N.nFrames(b.frames ?? '—')}</span></div>`;
+  return `<section class="block"><h2>${N.windowTitle}</h2>
     <div class="facts">
-      <div class="fact"><span class="fact-k">Window</span><b class="tnum">${fmtHM(w.start, d)}–${fmtHM(w.end, d)}</b><span class="fact-s tnum">${fmtDuration(w.durationMs)} · ${Math.round(w.durationMs / 1000)} s</span></div>
-      <div class="fact"><span class="fact-k">Number of Shots</span><b class="tnum">${w.shots}</b><span class="fact-s">${CAMERA.exposureS} s exposure, ${CAMERA.intervalS} s interval</span></div>
+      <div class="fact"><span class="fact-k">${N.window}</span><b class="tnum">${fmtHM(w.start, d)}–${fmtHM(w.end, d)}</b><span class="fact-s tnum">${fmtDuration(w.durationMs)} · ${Math.round(w.durationMs / 1000)} s</span></div>
+      <div class="fact"><span class="fact-k">${N.shots}</span><b class="tnum">${w.shots}</b><span class="fact-s">${N.expInt(CAMERA.exposureS, CAMERA.intervalS)}</span></div>
       ${p.bands.map(band).join('')}
     </div>
-    ${cloud !== undefined ? `<p class="cloud-line">Cloud forecast (window mean): <b>${cloudText(cloud)}</b><br>${OPEN_METEO_ATTRIBUTION} (CC BY 4.0)</p>` : ''}
-    <p class="note">Window = ${WINDOW_MARGIN_MIN} min before the Sun reaches ${BANDS.twilight.from}° to ${WINDOW_MARGIN_MIN} min after it reaches ${BANDS.dark.to}°. Shots = ⌈duration ÷ ${CAMERA.intervalS} s⌉. Band frames are for an on-time start.</p>
+    ${cloud !== undefined ? `<p class="cloud-line">${N.cloudLine} <b>${cloudText(cloud)}</b><br>${openMeteoAttribution()} (CC BY 4.0)</p>` : ''}
+    <p class="note">${N.windowNote(WINDOW_MARGIN_MIN, BANDS.twilight.from, BANDS.dark.to, CAMERA.intervalS)}</p>
   </section>`;
 }
 
-const SUN_LABELS: Record<SunAltitude, string> = {
-  [-6]: 'Civil twilight ends',
-  [-12]: 'Nautical twilight ends · twilight band starts',
-  [-18]: 'Astronomical twilight ends',
-  [-20]: 'Twilight band ends',
-  [-25]: 'Dark band starts',
-  [-35]: 'Dark band ends',
-};
 
 function sunCard(p: NightPlan): string {
   const d = p.dateStr;
+  const N = S().night;
   const rowClass = (a: SunAltitude) => (a === -12 || a === -20 || a === -25 || a === -35 ? 'hi' : '');
   const rows = [
-    `<tr><td>Sunset <span class="sec-s">(upper limb, refraction)</span></td><td class="r tnum">−0.8°</td><td class="t r tnum">${fmtHMS(p.sun.sunset, d)}</td></tr>`,
+    `<tr><td>${N.sunset} <span class="sec-s">${N.sunsetDetail}</span></td><td class="r tnum">−0.8°</td><td class="t r tnum">${fmtHMS(p.sun.sunset, d)}</td></tr>`,
     ...SUN_ALTITUDES.map(
-      (a) => `<tr class="${rowClass(a)}"><td>${SUN_LABELS[a]}</td><td class="r tnum">${a}°</td><td class="t r tnum">${fmtHMS(p.sun.descending[a], d)}</td></tr>`,
+      (a) => `<tr class="${rowClass(a)}"><td>${N.sunLabels[String(a)]}</td><td class="r tnum">${a}°</td><td class="t r tnum">${fmtHMS(p.sun.descending[a], d)}</td></tr>`,
     ),
   ].join('');
-  return `<section class="block"><h2>Sun</h2>
-    <table><thead><tr><th>Event</th><th class="r">Sun alt.</th><th class="r">KST</th></tr></thead><tbody>${rows}</tbody></table>
-    <p class="note">Sunset: Sun’s upper limb at the horizon with standard refraction (−0.8° for the centre). Other rows: geometric altitude of the Sun’s centre, no refraction (standard twilight definition). Cross-check −6°, −12°, −18° and sunset against KASI (astro.kasi.re.kr) or timeanddate.com.</p>
+  return `<section class="block"><h2>${N.sunTitle}</h2>
+    <table><thead><tr><th>${N.thEvent}</th><th class="r">${N.thSunAlt}</th><th class="r">KST</th></tr></thead><tbody>${rows}</tbody></table>
+    <p class="note">${N.sunNote}</p>
   </section>`;
 }
 
@@ -297,29 +303,30 @@ function moonCard(p: NightPlan): string {
   const m = p.moon;
   const d = p.dateStr;
   const w = p.window;
-  const upTxt = w ? `${m.minutesUp} of ${Math.round(w.durationMs / 60000)} min` : '—';
+  const N = S().night;
+  const upTxt = w ? N.upOf(m.minutesUp, Math.round(w.durationMs / 60000)) : '—';
   const rows = m.samples
     .map((s) => {
       const sa = sunAltitude(s.time, p.site);
       const band = (sa <= BANDS.twilight.from && sa >= BANDS.twilight.to) || (sa <= BANDS.dark.from && sa >= BANDS.dark.to) ? 'hi' : '';
       return `<tr class="${band}"><td class="t tnum">${fmtHM(s.time, d)}</td><td class="r tnum">${deg(sa)}</td>
         <td class="r tnum">${s.altitude > 0 ? deg(s.altitude) : `<span class="sec-s">${deg(s.altitude)}</span>`}</td>
-        <td class="r tnum">${deg(s.azimuth, 0)} ${compass(s.azimuth)}</td></tr>`;
+        <td class="r tnum">${deg(s.azimuth, 0)} ${dir(s.azimuth)}</td></tr>`;
     })
     .join('');
-  return `<section class="block"><h2>Moon</h2>
+  return `<section class="block"><h2>${N.moonTitle}</h2>
     <div class="moon-head">${moonIcon(m.illuminationPct, m.waxing)}
-      <div><div class="big tnum">${m.illuminationPct.toFixed(0)}% lit</div><div class="sec-s">${m.phaseName} · at ${fmtHM(m.phaseAt, d)}</div></div></div>
+      <div><div class="big tnum">${N.lit(m.illuminationPct.toFixed(0))}</div><div class="sec-s">${N.phaseAt(moonPhase(m.phaseName), fmtHM(m.phaseAt, d))}</div></div></div>
     <dl class="kv">
-      <dt>Moonrise</dt><dd class="tnum">${fmtHM(m.rise, d)}</dd>
-      <dt>Moonset</dt><dd class="tnum">${fmtHM(m.set, d)}</dd>
-      <dt>Up during window</dt><dd class="tnum">${upTxt}${m.maxAltitude !== null ? ` · max alt ${deg(m.maxAltitude)}` : ''}</dd>
+      <dt>${N.moonrise}</dt><dd class="tnum">${fmtHM(m.rise, d)}</dd>
+      <dt>${N.moonset}</dt><dd class="tnum">${fmtHM(m.set, d)}</dd>
+      <dt>${N.upDuring}</dt><dd class="tnum">${upTxt}${m.maxAltitude !== null ? N.maxAlt(deg(m.maxAltitude)) : ''}</dd>
     </dl>
     ${
       rows
-        ? `<div class="scroll-x" style="margin-top:12px"><table><thead><tr><th>KST</th><th class="r">Sun alt.</th><th class="r">Moon alt.</th><th class="r">Moon az.</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        ? `<div class="scroll-x" style="margin-top:12px"><table><thead><tr><th>KST</th><th class="r">${N.thSunAlt}</th><th class="r">${N.thMoonAlt}</th><th class="r">${N.thMoonAz}</th></tr></thead><tbody>${rows}</tbody></table></div>`
         : ''
     }
-    <p class="note">Rise/set: next events after 12:00 KST of the date (within 24 h; “(+1d)” = next day). Moon altitude is apparent (topocentric, with refraction); negative = below horizon. Azimuth from north through east. Rows in a solar band are marked.</p>
+    <p class="note">${N.moonNote}</p>
   </section>`;
 }
