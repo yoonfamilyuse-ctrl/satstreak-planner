@@ -3,6 +3,7 @@ import type { NightPlan } from '../astro/schedule';
 import { compass, moonPosition } from '../astro/moon';
 import { sunAltitude } from '../astro/sun';
 import { ommArrayToTleText } from '../sat/elements';
+import type { PhaseLaw } from '../sat/magnitude';
 import { CELESTRAK_ACTIVE_URL, CELESTRAK_LABEL, downloadActive, nextAllowedAt } from '../sat/celestrak';
 import { SatWorker } from '../sat/client';
 import { DEFAULT_CAMERA, fieldOfView, fovOutline, makeFov, pointingGrid, type Camera } from '../sat/fov';
@@ -19,6 +20,26 @@ export interface SatCtx {
 }
 
 const CAMERA_KEY = 'satstreak.camera';
+const MAG_KEY = 'satstreak.magnitude';
+
+interface MagSettings {
+  /** Count a crossing as "bright" if its predicted magnitude ≤ this. Placeholder until calibrated from photos. */
+  limit: number;
+  phaseLaw: PhaseLaw;
+  /** Optional assumed 1000-km magnitude for objects with no published value (null = leave them unknown). */
+  assumed: number | null;
+}
+
+function loadMag(): MagSettings {
+  const d: MagSettings = { limit: 6, phaseLaw: 'fraction', assumed: null };
+  try {
+    const m = JSON.parse(localStorage.getItem(MAG_KEY) ?? 'null');
+    if (m && Number.isFinite(m.limit) && (m.phaseLaw === 'fraction' || m.phaseLaw === 'lambert')) return { ...d, ...m };
+  } catch {
+    /* ignore */
+  }
+  return d;
+}
 const ISS = 25544;
 const BAND_LABEL: Record<BandKey, string> = { twilight: 'Twilight', dark: 'Dark', gap: 'Gap', outside: 'Margin' };
 
@@ -59,6 +80,7 @@ export class SatView {
   private passes: { setId: string; passes: Pass[]; epoch: number; name: string; computedAt: number } | null = null;
   private showAllPasses = false;
   private leoOnly = true;
+  private mag = loadMag();
   private el: HTMLElement | null = null;
   private ctx!: SatCtx;
   private bound = new WeakSet<HTMLElement>();
@@ -113,7 +135,7 @@ export class SatView {
   }
   private resultKey(): string {
     const { date, site } = this.ctx;
-    return JSON.stringify([this.activeId(), date, site.latitude, site.longitude, site.elevation, this.camera]);
+    return JSON.stringify([this.activeId(), date, site.latitude, site.longitude, site.elevation, this.camera, this.mag.phaseLaw]);
   }
 
   // ---------------------------------------------------------------- actions
@@ -217,7 +239,7 @@ export class SatView {
           if (!setId) throw new Error('Load an element set first.');
           await this.ensureWorkerHas(setId);
           const start = kstNoon(todayKST()).getTime();
-          const r = await this.worker.call<any>({ type: 'passes', setId, norad: ISS, options: { start, end: start + 14 * DAY_MS, site: this.ctx.site } });
+          const r = await this.worker.call<any>({ type: 'passes', setId, norad: ISS, options: { start, end: start + 14 * DAY_MS, site: this.ctx.site, phaseLaw: this.mag.phaseLaw } });
           this.passes = { setId, passes: r.passes, epoch: r.epoch, name: r.name, computedAt: Date.now() };
         });
       case 'csv':
@@ -235,6 +257,17 @@ export class SatView {
       const f = t.files[0];
       void this.run(`Loading ${f.name}…`, async () => this.importText(await f.text(), 'file', f.name, Date.now()));
       return;
+    }
+    if (t.id === 'limit-mag' || t.id === 'assumed-mag' || t.id === 'phase-law') {
+      if (t.id === 'phase-law') this.mag.phaseLaw = t.value as PhaseLaw;
+      else if (t.id === 'limit-mag' && Number.isFinite(Number(t.value)) && t.value !== '') this.mag.limit = Number(t.value);
+      else if (t.id === 'assumed-mag') this.mag.assumed = t.value.trim() === '' || !Number.isFinite(Number(t.value)) ? null : Number(t.value);
+      try {
+        localStorage.setItem(MAG_KEY, JSON.stringify(this.mag));
+      } catch {
+        /* ignore */
+      }
+      return this.paint();
     }
     if (t.id === 'leo-only') {
       this.leoOnly = t.checked;
@@ -277,10 +310,16 @@ export class SatView {
     this.msg = { text: `TLE file: ${r.written.toLocaleString()} objects written; ${r.skipped.toLocaleString()} with catalog numbers > 99999 omitted (TLE cannot hold them — they are in the OMM JSON file).`, kind: 'info' };
   }
 
+  /** Predicted magnitude: published (or assumed) 1000-km magnitude + geometric part; null = unknown. */
+  private magOf(x: { m1000: number | null; magRel: number }): number | null {
+    const m = x.m1000 ?? this.mag.assumed;
+    return m === null || !Number.isFinite(x.magRel) ? null : m + x.magRel;
+  }
+
   private exportCrossings() {
     if (!this.result) return;
     const m = this.meta(this.result.setId);
-    const head = ['norad', 'name', 'regime', 'band', 'entry_utc', 'exit_utc', 'entry_kst', 'exit_kst', 'duration_s', 'entry_az', 'entry_alt', 'exit_az', 'exit_alt', 'max_alt', 'entry_clipped', 'exit_clipped', 'element_epoch_utc'];
+    const head = ['norad', 'name', 'regime', 'band', 'entry_utc', 'exit_utc', 'entry_kst', 'exit_kst', 'duration_s', 'entry_az', 'entry_alt', 'exit_az', 'exit_alt', 'max_alt', 'entry_clipped', 'exit_clipped', 'element_epoch_utc', 'mag_pred', 'm1000', 'm1000_assumed', 'mag_source', 'mag_geometric_part', 'merged_colocated_norad'];
     const rows = this.result.r.crossings.map((c) =>
       [
         c.norad,
@@ -300,6 +339,12 @@ export class SatView {
         c.entryClipped,
         c.exitClipped,
         new Date(c.epoch).toISOString(),
+        this.magOf(c)?.toFixed(2) ?? '',
+        c.m1000 ?? this.mag.assumed ?? '',
+        c.m1000 === null && this.mag.assumed !== null,
+        c.magKey ?? '',
+        c.magRel.toFixed(2),
+        c.merged.map((x) => x.norad).join(' '),
       ]
         .map(csvCell)
         .join(','),
@@ -308,6 +353,7 @@ export class SatView {
     const meta = [
       `# Predicted camera-frame crossings, night ${this.ctx.date}, site ${this.ctx.site.latitude},${this.ctx.site.longitude},${this.ctx.site.elevation}m`,
       `# camera az ${cam.azimuth} alt ${cam.altitude} f ${cam.focalLength}mm sensor ${cam.sensorWidth}x${cam.sensorHeight}mm; step 10 s, entry/exit refined to 0.1 s`,
+      `# magnitudes: m = m1000 + 5log10(d/1000km) - 2.5log10 F(phase), phase law '${this.mag.phaseLaw}', brightest 10-s sample in frame; m1000 sources in README; assumed m1000 for unknown objects: ${this.mag.assumed ?? 'none'}`,
       `# elements: ${m?.label ?? ''} downloaded ${m ? new Date(m.downloadedAt).toISOString() : ''} (set id ${this.result.setId})`,
     ];
     download(`predictions_${this.ctx.date}_az${cam.azimuth}_alt${cam.altitude}.csv`, [...meta, head.join(','), ...rows].join('\n') + '\n', 'text/csv');
@@ -327,7 +373,7 @@ export class SatView {
       }
       await this.ensureWorkerHas(setId);
       const r = await this.worker.call<{ result: PredictResult }>(
-        { type: 'predict', setId, input: { start: w.start.getTime(), end: w.end.getTime(), stepS: 10, site: this.ctx.site, camera: this.camera, pointing: pointingGrid(this.camera) } },
+        { type: 'predict', setId, input: { start: w.start.getTime(), end: w.end.getTime(), stepS: 10, site: this.ctx.site, camera: this.camera, pointing: pointingGrid(this.camera), phaseLaw: this.mag.phaseLaw } },
         (f) => {
           const bar = this.el?.querySelector<HTMLElement>('#sat-progress');
           if (bar) bar.style.width = `${(f * 100).toFixed(0)}%`;
@@ -438,10 +484,19 @@ export class SatView {
       return b.start && b.end ? (b.end.getTime() - b.start.getTime()) / 60000 : 0;
     };
     const count = (k: BandKey) => crossings.filter((c) => c.band === k).length;
+    const lim = this.mag.limit;
     const stat = (k: 'twilight' | 'dark') => {
-      const n = count(k);
+      const inBand = crossings.filter((c) => c.band === k);
+      const n = inBand.length;
+      const mags = inBand.map((c) => this.magOf(c));
+      const bright = mags.filter((x) => x !== null && x <= lim).length;
+      const unknown = mags.filter((x) => x === null).length;
       const m = bandMin(k);
-      return `<div class="stat band-${k}"><div class="k">${BAND_LABEL[k]} band</div><div class="v tnum">${n}</div><div class="s tnum">${m ? `${((n / m) * 60).toFixed(1)} per hour · ${m.toFixed(0)} min` : ''}</div></div>`;
+      const perH = (x: number) => (m ? ((x / m) * 60).toFixed(1) : '—');
+      return `<div class="stat band-${k}"><div class="k">${BAND_LABEL[k]} band · ${m.toFixed(0)} min</div>
+        <div class="v tnum">${n}</div><div class="s tnum">all geometric · ${perH(n)}/h</div>
+        <div class="v2 tnum">${bright}</div><div class="s tnum">brighter than mag ${lim} · ${perH(bright)}/h</div>
+        <div class="s tnum">${unknown} with unknown brightness</div></div>`;
     };
     const fov = fovOutline(makeFov(this.camera));
     const mid = new Date((w.start.getTime() + w.end.getTime()) / 2);
@@ -451,41 +506,75 @@ export class SatView {
       .map(
         (c: Crossing) => `<tr class="${c.band === 'twilight' || c.band === 'dark' ? c.band : ''}">
           <td class="t tnum">${fmtHMS(new Date(c.entry))}${c.entryClipped ? '*' : ''}<div class="sec">${fmtHMS(new Date(c.exit))}${c.exitClipped ? '*' : ''}</div></td>
-          <td>${esc(c.name)}<div class="sec tnum">${c.norad} · ${c.regime}</div></td>
+          <td>${esc(c.name)}<div class="sec tnum">${c.norad} · ${c.regime}${c.merged.length ? ` · +${c.merged.length} docked` : ''}</div></td>
           <td class="r tnum">${deg(c.maxAlt, 0)}</td>
+          <td class="r tnum">${this.magCell(c)}</td>
           <td class="r">${BAND_LABEL[c.band]}</td></tr>`,
       )
       .join('');
     const m = this.meta(res.setId);
     return `<section class="card"><h2>Predicted crossings · ${fmtShortDate(this.ctx.date)}</h2>
       <label class="check"><input type="checkbox" id="leo-only"${this.leoOnly ? ' checked' : ''}> LEO only (period &lt; 128 min) — ${nonLeo} MEO/GEO/HEO ${this.leoOnly ? 'hidden' : 'included'}</label>
+      ${this.magSettings()}
       <div class="stats">${stat('twilight')}${stat('dark')}</div>
-      <p class="note tnum">Also ${count('gap')} between the bands and ${count('outside')} in the 5-min margins. ${r.objects.toLocaleString()} objects propagated, ${r.propagationFailed} failed (decayed / SGP4 error) · ${r.steps} steps · ${(r.elapsedMs / 1000).toFixed(1)} s. Elements: ${m ? fmtDateTime(m.downloadedAt) : '?'} KST.</p>
+      <p class="note tnum">Also ${count('gap')} between the bands and ${count('outside')} in the 5-min margins. ${r.objects.toLocaleString()} objects propagated, ${r.propagationFailed} failed (decayed / SGP4 error), ${r.mergedObjects} merged into co-located objects (docked modules/vehicles, &lt; 2 km apart) · ${r.steps} steps · ${(r.elapsedMs / 1000).toFixed(1)} s. Elements: ${m ? fmtDateTime(m.downloadedAt) : '?'} KST.</p>
       ${chart}
       <h3>Crossing list (${crossings.length})</h3>
-      <div class="scroll-y"><table><thead><tr><th>Enter / exit (KST)</th><th>Object</th><th class="r">Max alt</th><th class="r">Band</th></tr></thead><tbody>${rows}</tbody></table></div>
-      <p class="note">* already inside the frame at window start / still inside at window end. Entry/exit refined to 0.1 s; band from the Sun’s altitude at the crossing midpoint. Geostationary and GPS-type (MEO) objects barely move in 15 s and many stay in the frame for the whole window, so they are not counted as crossings by default. The CSV always contains every object, with its regime.</p>
+      <div class="scroll-y"><table><thead><tr><th>Enter / exit (KST)</th><th>Object</th><th class="r">Max alt</th><th class="r">Mag</th><th class="r">Band</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="note">* already inside the frame at window start / still inside at window end. Entry/exit refined to 0.1 s; band from the Sun’s altitude at the crossing midpoint. Mag = brightest predicted magnitude in the frame (10-s samples); “—” = no published intrinsic magnitude; “a” = assumed value. Geostationary and GPS-type (MEO) objects barely move in 15 s and many stay in the frame for the whole window, so they are not counted as crossings by default. The CSV always contains every object, with its regime.</p>
       <div class="btn-row">${btn}<button data-act="csv">Download CSV</button></div>
       ${this.pointingTable(r)}
     </section>`;
   }
 
+  private magCell(c: Crossing): string {
+    const m = this.magOf(c);
+    if (m === null) return '<span class="sec">—</span>';
+    const cls = m <= this.mag.limit ? 'bright' : 'sec';
+    return `<span class="${cls}">${m.toFixed(1)}${c.m1000 === null ? 'a' : ''}</span>`;
+  }
+
+  private magSettings(): string {
+    const g = this.mag;
+    return `<details class="criteria mag-settings" open><summary>Brightness model</summary>
+      <div class="cam-grid">
+        <label>Limiting magnitude<input id="limit-mag" type="number" step="0.5" inputmode="decimal" value="${g.limit}"></label>
+        <label>Phase law<select id="phase-law"><option value="fraction"${g.phaseLaw === 'fraction' ? ' selected' : ''}>Fraction illuminated</option><option value="lambert"${g.phaseLaw === 'lambert' ? ' selected' : ''}>Diffuse (Lambert) sphere</option></select></label>
+        <label class="full">Assumed 1000-km mag for objects with no published value <input id="assumed-mag" type="number" step="0.5" inputmode="decimal" placeholder="leave blank = unknown" value="${g.assumed ?? ''}"></label>
+      </div>
+      <p class="note">m = m₁₀₀₀ + 5·log₁₀(range/1000 km) − 2.5·log₁₀F(phase angle), F = 1 at 90°. m₁₀₀₀ from Mallama &amp; Cole’s compiled table (Starlink by version, OneWeb, Amazon Leo, Qianfan) and Heavens-Above (ISS); see README for every source and flag. Limiting magnitude ${g.limit} is a <b>placeholder</b> until you calibrate it from your photos. Changing the phase law needs a recompute.</p>
+    </details>`;
+  }
+
   private pointingTable(r: PredictResult): string {
     if (!r.pointing.length) return '';
-    const azs = [0, 45, 90, 135, 180, 225, 270, 315];
-    const get = (az: number, alt: number) => r.pointing.find((x) => x.azimuth === az && x.altitude === alt)!.counts;
-    const getAll = (az: number, alt: number) => r.pointing.find((x) => x.azimuth === az && x.altitude === alt)!.countsAll;
-    const best = Math.max(...r.pointing.map((x) => (this.leoOnly ? x.counts : x.countsAll)).map((c) => c.twilight + c.dark));
-    const cell = (az: number, alt: number) => {
-      const c = this.leoOnly ? get(az, alt) : getAll(az, alt);
-      const tot = c.twilight + c.dark;
-      const cur = this.camera.azimuth === az && this.camera.altitude === alt;
-      return `<td class="r tnum${tot === best ? ' best' : ''}${cur ? ' cur' : ''}">${c.twilight} / ${c.dark}</td>`;
-    };
-    const rows = azs.map((az) => `<tr><td>${compass(az)} <span class="sec">${az}°</span></td>${cell(az, 45)}${cell(az, 60)}</tr>`).join('');
+    const lim = this.mag.limit;
+    const stats = r.pointing.map((pc) => {
+      const runs = pc.runs.filter((x) => !this.leoOnly || x.leo);
+      const c = (b: BandKey) => {
+        const rb = runs.filter((x) => x.band === b);
+        const bright = rb.filter((x) => {
+          const m = this.magOf(x);
+          return m !== null && m <= lim;
+        }).length;
+        return { all: rb.length, bright };
+      };
+      return { pc, tw: c('twilight'), dk: c('dark') };
+    });
+    const best = Math.max(...stats.map((x) => x.tw.all + x.dk.all));
+    const bestBright = Math.max(...stats.map((x) => x.tw.bright + x.dk.bright));
+    const rows = stats
+      .sort((a, b) => a.pc.azimuth - b.pc.azimuth || a.pc.altitude - b.pc.altitude)
+      .map(({ pc, tw, dk }) => {
+        const cur = this.camera.azimuth === pc.azimuth && this.camera.altitude === pc.altitude;
+        return `<tr class="${cur ? 'cur' : ''}"><td>${compass(pc.azimuth)} <span class="sec">${pc.azimuth}°/${pc.altitude}°</span></td>
+          <td class="r tnum${tw.all + dk.all === best ? ' best' : ''}">${tw.all} / ${dk.all}</td>
+          <td class="r tnum${tw.bright + dk.bright === bestBright ? ' best' : ''}">${tw.bright} / ${dk.bright}</td></tr>`;
+      })
+      .join('');
     return `<h3>Pointing comparison</h3>
-      <table class="pointing"><thead><tr><th>Azimuth</th><th class="r">Alt 45°<div class="sec">twilight / dark</div></th><th class="r">Alt 60°<div class="sec">twilight / dark</div></th></tr></thead><tbody>${rows}</tbody></table>
-      <p class="note">${this.leoOnly ? 'LEO crossings' : 'Crossings (all regimes)'} per band for the same lens pointed elsewhere (10-s resolution). Bold = most crossings in total; outlined = your current pointing if it is on this grid.</p>`;
+      <div class="scroll-x"><table class="pointing"><thead><tr><th>Az / alt</th><th class="r">All<div class="sec">twilight / dark</div></th><th class="r">≤ mag ${lim}<div class="sec">twilight / dark</div></th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="note">${this.leoOnly ? 'LEO crossings' : 'Crossings (all regimes)'} per band for the same lens pointed elsewhere (10-s resolution). Bold = highest; outlined = your current pointing if it is on this grid.</p>`;
   }
 
   private issCard(): string {

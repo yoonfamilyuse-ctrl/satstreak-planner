@@ -91,8 +91,52 @@ For today and the next 13 evenings: shooting window, number of shots, Moon illum
     | GEO | 220 | 0.0001° = **0 px** (0–0.4 px) | fixed point, while the stars trail past it |
 
     GEO objects stay fixed relative to the ground, so on a tripod they are points. MEO objects make dashes only a few pixels longer than the star trails around them. Neither produces the kind of streak this project detects. Many of them also stay in the frame for the entire window, so counting them as "crossings" would add a constant offset to both bands and mask the twilight-versus-dark difference.
-- **The counts are geometric upper bounds.** They have no brightness limit: every sunlit object in the frame counts, however faint. Expect the camera to detect only a fraction (bright LEO objects). For 2026-11-11 at 180°/60°: 482 twilight-band vs 54 dark-band LEO crossings.
+- **Geometric counts are upper bounds**: every sunlit object in the frame counts, however faint. Each band therefore also shows a "brighter than the limiting magnitude" count (see *Predicted brightness*).
 - **Pointing comparison:** the same computation for 8 azimuths × 45°/60°, at 10-s resolution.
+
+### Predicted brightness
+
+```
+m = m₁₀₀₀ + 5·log₁₀(d / 1000 km) − 2.5·log₁₀ F(φ)        F(90°) = 1
+```
+d = observer–satellite range; φ = solar phase angle (Sun–satellite–observer, Sun direction from Vallado's `sunPos`). For each crossing the app reports the **brightest** value over the 10-s samples inside the frame.
+
+**Phase law F(φ)** (setting; default *fraction illuminated*):
+
+| Law | F(φ) | Source |
+|---|---|---|
+| Fraction illuminated (default) | 1 + cos φ | Mallama (2020), *The Brightness of OneWeb Satellites*, arXiv:2012.05100, §2: standard-magnitude phase adjustment "2.5·log₁₀(0.5 + 0.5 cos B)", the fraction of a sphere that is lit. Same convention as Heavens-Above's "intrinsic brightness … 50 % illuminated". |
+| Diffuse (Lambertian) sphere | (π − φ)·cos φ + sin φ | McCue, Williams & Morford (1971), *Optical characteristics of artificial satellites*, Planet. Space Sci. 19, 851–868, doi:10.1016/0032-0633(71)90137-1, as given in Romero-Colmenares et al. (2026), arXiv:2603.21859, Eq. 5 (p = 1) |
+
+**Intrinsic magnitudes m₁₀₀₀** (`src/sat/magnitude.ts`). Primary source: A. Mallama & R. E. Cole, *Satellite Constellation Magnitudes*, https://satmags.netlify.app/ (table updated 2026-08-03). This is the authors' current compilation; it supersedes some values in their earlier papers.
+
+| Objects (how identified) | m₁₀₀₀ | Table row → reference | Flag |
+|---|---|---|---|
+| ISS (NORAD 25544) | −1.8 | Heavens-Above satellite page, "intrinsic brightness (at 1000 km distance, 50 % illuminated)" | ⚑ read from a search-engine copy of the page; heavens-above.com was unreachable when checked. Please confirm on the site. |
+| Starlink **v1** (launch → version below) | 5.89 | SL-V1.0 → Mallama 2021, arXiv:2111.09735 | ⚑ v1 launches include VisorSats (7.21, ~1.3 mag fainter), which cannot be told apart by launch, so v1 may be predicted too bright |
+| Starlink **v1.5** | 6.34 | SL-V1.5 | ⚑ **UNPUBLISHED**: the table marks this row "**" |
+| Starlink **v2 mini** | 7.22 | SL-Mini-550 → Mallama et al. 2023, arXiv:2306.06657 | The paper's abstract gives 7.87 ± 0.09 for mitigation mode only. The 475-km shell row (7.35) is unpublished. |
+| Starlink **Direct-to-Cell** (name ends "[DTC]") | 6.74 | SL-Mini-DTC → Mallama et al. 2025, arXiv:2502.03651 | That paper's abstract gives 6.47 |
+| OneWeb (ONEWEB-*) | 7.41 | OneWeb → Mallama 2022, arXiv:2203.05513 | That paper reports 7.05 (2021 data); Mallama 2020 reported 7.18. Mallama 2026 (arXiv:2604.13145) reports OneWeb dimming over time. |
+| Amazon Leo (KUIPER-*) | 6.86 | Amazon Leo → Mallama et al. 2026, arXiv:2601.07708 | |
+| Qianfan (QIANFAN-*) | 5.42 | Qianfan → Mallama et al. 2025, arXiv:2505.07194 | That paper's abstract gives 5.24 ± 0.04 |
+| Starlink v0.9, v3, or launched after the version table | — | none found | shown as unknown |
+| **All other objects** | — | **no published generic value found** | shown as unknown ("—"). Optionally, you can type an *assumed* m₁₀₀₀ in the app; those predictions are then marked "a" and `m1000_assumed=true` in the CSV. |
+
+*Starlink version* comes from the launch (COSPAR designator, e.g. `2023-026`) via the "Sat. ver." column of Wikipedia's *List of Starlink and Starshield launches*, revision 1383023653 (2026-10-31; the article's counts cite J. McDowell, planet4589.org). The table is embedded in `src/sat/starlink-versions.ts`. In the 2026-11-04 catalogue every Starlink matched: 7,424 v2 mini, 2,554 v1.5, 637 DTC, 566 v1, 26 v3.
+
+**Check against an independent prediction:** Heavens-Above's "Brightness" for the 7 ISS passes above, compared with the app's brightest predicted magnitude in the visible part (`tests/satellites.test.ts`):
+
+| Phase law | mean (app − HA) | rms |
+|---|---|---|
+| Fraction illuminated | +0.05 mag | **0.28 mag** |
+| Diffuse sphere | −0.02 mag | 0.66 mag (1.0 mag too faint at φ ≈ 125°) |
+
+Heavens-Above is itself a model, not a measurement, so this checks consistency, not truth.
+
+**Limitations (read before using the counts in the paper).** The Mallama & Cole values are range-adjusted means over all the phase angles at which the satellites were observed; they are not phase-normalised standard magnitudes, so applying a phase law to them is an approximation. Starlink satellites also scatter light forward far more than any sphere (Mallama 2021), and their brightness changes with attitude and over months to years. Treat predicted magnitudes as roughly ±1 mag. The **limiting magnitude (default 6.0) is a placeholder** until you measure your real detection limit from your photos. The band counts are shown both as "all geometric crossings" and "brighter than the limit", plus a count of crossings with unknown brightness.
+
+**CSV columns added:** `mag_pred` (brightest predicted magnitude in frame, empty if unknown), `m1000`, `m1000_assumed`, `mag_source` (table row key), and `mag_geometric_part` (5·log₁₀(d/1000) − 2.5·log₁₀F, so you can recompute with a different m₁₀₀₀ later).
 - **Sky chart:** all-sky azimuthal-equidistant plot (zenith at centre, North up, East left). Shows the frame outline, the Moon at window midpoint, and the sunlit above-horizon tracks of objects that cross the frame, coloured by band (dark band also dashed, so it reads in red night mode).
 - **CSV export** of the crossing list includes the element epoch of each object and the set id.
 - The worker propagates the full catalogue (16,873 objects × 762 steps) in ~8 s on a laptop. Expect ~20–40 s on a phone.

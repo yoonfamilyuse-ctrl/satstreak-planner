@@ -217,7 +217,6 @@ table.saved td { font-size: 13px; }
 .scroll-y { max-height: 420px; overflow: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: 10px; }
 .scroll-y table th { position: sticky; top: 0; background: var(--card); }
 table.pointing td.best { font-weight: 800; }
-table.pointing td.cur { outline: 2px solid var(--accent); outline-offset: -3px; border-radius: 6px; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 14px; min-height: 40px; }
 .check input { width: 20px; min-height: 20px; }
 
@@ -238,3 +237,9 @@ table.pointing td.cur { outline: 2px solid var(--accent); outline-offset: -3px; 
 .sc-legend .sw.sc-dk { border-color: var(--dark); border-top-style: dashed; }
 .sc-legend .sw.sc-ot { border-color: var(--muted); }
 .sc-legend .sw.sc-fovsw { border-color: var(--fg); }
+
+.stat .v2 { font-size: 20px; font-weight: 700; margin-top: 6px; }
+.bright { font-weight: 700; }
+.mag-settings .cam-grid { margin-top: 8px; }
+.cam-grid .full { grid-column: 1 / -1; }
+table.pointing tr.cur td { background: var(--line); }

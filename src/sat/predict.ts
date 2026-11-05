@@ -1,8 +1,9 @@
-import { ecfToLookAngles, eciToEcf, gstime, propagate, sunPos, type SatRec } from 'satellite.js';
+import { ecfToEci, ecfToLookAngles, eciToEcf, geodeticToEcf, gstime, propagate, sunPos, type SatRec } from 'satellite.js';
 import type { Site } from '../config';
 import { sunAltitude } from '../astro/sun';
 import type { Regime, SatEntry } from './elements';
 import { inFov, makeFov, type Camera, type Fov } from './fov';
+import { phaseTerm, visualMagnitude, type PhaseLaw } from './magnitude';
 
 /**
  * Satellite visibility predictions.
@@ -25,6 +26,8 @@ import { inFov, makeFov, type Camera, type Fov } from './fov';
 
 export const R_EARTH_KM = 6378.137; // WGS-84 equatorial radius
 const D2R = Math.PI / 180;
+/** Objects closer than this at both the start and the end of the window are one physical object (one streak). */
+export const COLOCATED_KM = 2;
 const R2D = 180 / Math.PI;
 
 export type BandKey = 'twilight' | 'dark' | 'gap' | 'outside';
@@ -68,19 +71,44 @@ export interface Look {
   az: number;
   alt: number;
   sunlit: boolean;
+  /** Observer–satellite range, km. */
+  rangeKm: number;
+  /** Solar phase angle Sun–satellite–observer, radians (only when sunlit was evaluated). */
+  phase: number;
 }
 
 export function observerGd(site: Site) {
   return { latitude: site.latitude * D2R, longitude: site.longitude * D2R, height: site.elevation / 1000 };
 }
 
-function lookAt(satrec: SatRec, ctx: StepCtx, gd: ReturnType<typeof observerGd>, needSunlit = true): Look | null {
+type Gd = ReturnType<typeof observerGd>;
+const obsEcfCache = new WeakMap<Gd, { x: number; y: number; z: number }>();
+
+function lookAt(satrec: SatRec, ctx: StepCtx, gd: Gd, needSunlit = true): Look | null {
   const pv = propagate(satrec, ctx.date);
   if (!pv || !pv.position || satrec.error) return null;
   const p = pv.position as { x: number; y: number; z: number };
   if (!Number.isFinite(p.x)) return null;
   const la = ecfToLookAngles(gd, eciToEcf(p as any, ctx.gmst));
-  return { az: la.azimuth, alt: la.elevation, sunlit: needSunlit && la.elevation > 0 ? isSunlit(p, ctx.sun) : false };
+  let sunlit = false;
+  let phase = NaN;
+  if (needSunlit && la.elevation > 0) {
+    sunlit = isSunlit(p, ctx.sun);
+    if (sunlit) {
+      // Observer position in the same inertial frame (TEME ≈ via GMST rotation, as for the satellite).
+      let oe = obsEcfCache.get(gd);
+      if (!oe) obsEcfCache.set(gd, (oe = geodeticToEcf(gd as any) as any));
+      const o = ecfToEci(oe as any, ctx.gmst) as { x: number; y: number; z: number };
+      const vx = o.x - p.x;
+      const vy = o.y - p.y;
+      const vz = o.z - p.z;
+      const r = Math.hypot(vx, vy, vz);
+      // Sun at infinity: Sun direction from the satellite = Sun direction from Earth's centre.
+      const c = (vx * ctx.sun[0] + vy * ctx.sun[1] + vz * ctx.sun[2]) / r;
+      phase = Math.acos(Math.max(-1, Math.min(1, c)));
+    }
+  }
+  return { az: la.azimuth, alt: la.elevation, sunlit, rangeKm: la.rangeSat, phase };
 }
 
 /** Bisection on a boolean condition between t0 (cond = c0) and t1 (cond = !c0), to `tolMs`. */
@@ -117,6 +145,17 @@ export interface Crossing {
   exitAz: number;
   exitAlt: number;
   band: BandKey;
+  /**
+   * Geometric part of the magnitude at the brightest in-frame sample (10-s samples):
+   * 5·log₁₀(d/1000 km) − 2.5·log₁₀F(φ). Predicted magnitude = m1000 + magRel.
+   */
+  magRel: number;
+  /** Published intrinsic magnitude, or null (unknown). */
+  m1000: number | null;
+  /** Key of the intrinsic-magnitude source (see magnitude.ts), or null. */
+  magKey: string | null;
+  /** Other catalogue objects co-located with this one (docked modules/vehicles), merged into this crossing. */
+  merged: { norad: number; name: string }[];
 }
 
 export interface Track {
@@ -127,13 +166,23 @@ export interface Track {
   segments: [number, number][][];
 }
 
+/** One frame crossing for a candidate pointing (10-s resolution, no refinement). */
+export interface PointingRun {
+  band: BandKey;
+  leo: boolean;
+  /** Geometric magnitude part at the brightest in-frame sample (see Crossing.magRel). */
+  magRel: number;
+  m1000: number | null;
+  norad: number;
+  /** First / last in-frame sample (ms UTC). */
+  start: number;
+  end: number;
+}
+
 export interface PointingCount {
   azimuth: number;
   altitude: number;
-  /** LEO objects only. */
-  counts: Record<BandKey, number>;
-  /** All orbit regimes. */
-  countsAll: Record<BandKey, number>;
+  runs: PointingRun[];
 }
 
 export interface PredictInput {
@@ -144,19 +193,20 @@ export interface PredictInput {
   camera: Camera;
   /** Extra cameras for the pointing comparison (10-s resolution, no refinement). */
   pointing: Camera[];
+  phaseLaw?: PhaseLaw;
 }
 
 export interface PredictResult {
   objects: number;
   propagationFailed: number;
+  /** Catalogue objects merged into a co-located representative (e.g. ISS modules and docked vehicles). */
+  mergedObjects: number;
   crossings: Crossing[];
   tracks: Track[];
   pointing: PointingCount[];
   steps: number;
   elapsedMs: number;
 }
-
-const emptyCounts = (): Record<BandKey, number> => ({ twilight: 0, dark: 0, gap: 0, outside: 0 });
 
 export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress?: (f: number) => void): PredictResult {
   const t0 = performance.now();
@@ -170,26 +220,33 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
   const gd = observerGd(inp.site);
   const fovs: Fov[] = [inp.camera, ...inp.pointing].map(makeFov);
   const F = fovs.length;
-  const pointing: PointingCount[] = inp.pointing.map((c) => ({ azimuth: c.azimuth, altitude: c.altitude, counts: emptyCounts(), countsAll: emptyCounts() }));
+  const pointing: PointingCount[] = inp.pointing.map((c) => ({ azimuth: c.azimuth, altitude: c.altitude, runs: [] }));
   const crossings: Crossing[] = [];
   const tracks: Track[] = [];
   let propagationFailed = 0;
 
+  // Co-located objects (docked modules and visiting vehicles: the ISS appears as ~10 catalogue entries) would
+  // otherwise be counted several times. Group objects within COLOCATED_KM at both window start and end.
+  const { skip, members } = colocatedGroups(sats, times[0], times[K - 1]);
+
   const runStart = new Int32Array(F);
   const runMax = new Float64Array(F);
+  const runMag = new Float64Array(F);
 
   for (let i = 0; i < sats.length; i++) {
     if (onProgress && i % 400 === 0) onProgress(i / sats.length);
     const sat = sats[i];
+    if (skip.has(i)) continue;
+    const m1000 = sat.intrinsic?.m1000 ?? null;
     runStart.fill(-1);
-    const mainRuns: [number, number, number][] = [];
-    const otherRuns: [number, number][] = []; // [fovIndex, midK]
+    const mainRuns: [number, number, number, number][] = []; // [k0, k1, maxAlt, minMag]
     const track: [number, number, number][] = []; // [k, azDeg, altDeg]
     let failed = false;
 
     for (let k = 0; k <= K; k++) {
       let vis = false;
       let lk: Look | null = null;
+      let rel = Infinity;
       if (k < K) {
         lk = lookAt(sat.satrec, ctxs[k], gd);
         if (!lk) {
@@ -197,7 +254,10 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
           break;
         }
         vis = lk.alt > 0 && lk.sunlit;
-        if (vis) track.push([k, lk.az * R2D, lk.alt * R2D]);
+        if (vis) {
+          track.push([k, lk.az * R2D, lk.alt * R2D]);
+          rel = 5 * Math.log10(lk.rangeKm / 1000) + phaseTerm(lk.phase, inp.phaseLaw);
+        }
       }
       for (let f = 0; f < F; f++) {
         const inside = vis && inFov(fovs[f], lk!.az, lk!.alt);
@@ -205,22 +265,35 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
           if (runStart[f] < 0) {
             runStart[f] = k;
             runMax[f] = lk!.alt;
-          } else if (lk!.alt > runMax[f]) runMax[f] = lk!.alt;
+            runMag[f] = rel;
+          } else {
+            if (lk!.alt > runMax[f]) runMax[f] = lk!.alt;
+            if (rel < runMag[f]) runMag[f] = rel;
+          }
         } else if (runStart[f] >= 0) {
-          if (f === 0) mainRuns.push([runStart[f], k - 1, runMax[f]]);
-          else otherRuns.push([f, Math.round((runStart[f] + k - 1) / 2)]);
+          const k0 = runStart[f];
+          const k1 = k - 1;
+          const relVal = +runMag[f].toFixed(2);
+          if (f === 0) mainRuns.push([k0, k1, runMax[f], relVal]);
+          else
+            pointing[f - 1].runs.push({
+              band: bandOf(sunAlts[Math.round((k0 + k1) / 2)]),
+              leo: sat.regime === 'LEO',
+              magRel: relVal,
+              m1000,
+              norad: sat.norad,
+              start: times[k0],
+              end: times[k1],
+            });
           runStart[f] = -1;
         }
       }
     }
     if (failed) {
       propagationFailed++;
+      // Drop partial pointing runs from a satellite that failed mid-window.
+      for (const pc of pointing) pc.runs = pc.runs.filter((r) => r.norad !== sat.norad);
       continue;
-    }
-    for (const [f, midK] of otherRuns) {
-      const b = bandOf(sunAlts[midK]);
-      pointing[f - 1].countsAll[b]++;
-      if (sat.regime === 'LEO') pointing[f - 1].counts[b]++;
     }
     if (!mainRuns.length) continue;
 
@@ -234,7 +307,7 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
       return [lk.az * R2D, lk.alt * R2D];
     };
     let firstBand: BandKey | null = null;
-    for (const [k0, k1, maxAlt] of mainRuns) {
+    for (const [k0, k1, maxAlt, magRel] of mainRuns) {
       const entryClipped = k0 === 0;
       const exitClipped = k1 === K - 1;
       const entry = entryClipped ? times[0] : bisect(times[k0 - 1], times[k0], cond);
@@ -243,7 +316,26 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
       firstBand ??= band;
       const [entryAz, entryAlt] = pos(entry);
       const [exitAz, exitAlt] = pos(exit);
-      crossings.push({ norad: sat.norad, regime: sat.regime, name: sat.name, epoch: sat.epoch, entry, exit, entryClipped, exitClipped, maxAlt: maxAlt * R2D, entryAz, entryAlt, exitAz, exitAlt, band });
+      crossings.push({
+        norad: sat.norad,
+        regime: sat.regime,
+        name: sat.name,
+        epoch: sat.epoch,
+        entry,
+        exit,
+        entryClipped,
+        exitClipped,
+        maxAlt: maxAlt * R2D,
+        entryAz,
+        entryAlt,
+        exitAz,
+        exitAlt,
+        band,
+        magRel,
+        m1000,
+        magKey: sat.intrinsic?.key ?? null,
+        merged: (members.get(i) ?? []).map((j) => ({ norad: sats[j].norad, name: sats[j].name })),
+      });
     }
     const segments: [number, number][][] = [];
     let prevK = -2;
@@ -256,7 +348,57 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
   }
   onProgress?.(1);
   crossings.sort((a, b) => a.entry - b.entry);
-  return { objects: sats.length, propagationFailed, crossings, tracks, pointing, steps: K, elapsedMs: performance.now() - t0 };
+  return { objects: sats.length, propagationFailed, mergedObjects: skip.size, crossings, tracks, pointing, steps: K, elapsedMs: performance.now() - t0 };
+}
+
+/**
+ * Groups of co-located objects. Representative: ISS (25544) if present in the group, else an object with a
+ * published magnitude, else the lowest catalogue number. Returns indices to skip and each representative's members.
+ */
+export function colocatedGroups(sats: SatEntry[], tA: number, tB: number) {
+  const pos = (s: SatEntry, t: number) => {
+    const pv = propagate(s.satrec, new Date(t));
+    const p = pv?.position as { x: number; y: number; z: number } | undefined;
+    return p && Number.isFinite(p.x) ? p : null;
+  };
+  const A = sats.map((s) => pos(s, tA));
+  const B = sats.map((s) => pos(s, tB));
+  const cell = (p: { x: number; y: number; z: number }) => `${Math.floor(p.x / 10)},${Math.floor(p.y / 10)},${Math.floor(p.z / 10)}`;
+  const grid = new Map<string, number[]>();
+  A.forEach((p, i) => {
+    if (!p) return;
+    const k = cell(p);
+    grid.get(k)?.push(i) ?? grid.set(k, [i]);
+  });
+  const parent = sats.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const d = (p: { x: number; y: number; z: number }, q: { x: number; y: number; z: number }) => Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
+  A.forEach((p, i) => {
+    if (!p || !B[i]) return;
+    const [cx, cy, cz] = [Math.floor(p.x / 10), Math.floor(p.y / 10), Math.floor(p.z / 10)];
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dz = -1; dz <= 1; dz++)
+          for (const j of grid.get(`${cx + dx},${cy + dy},${cz + dz}`) ?? []) {
+            if (j <= i || !A[j] || !B[j]) continue;
+            if (d(p, A[j]!) < COLOCATED_KM && d(B[i]!, B[j]!) < COLOCATED_KM) parent[find(j)] = find(i);
+          }
+  });
+  const groups = new Map<number, number[]>();
+  sats.forEach((_, i) => {
+    const r = find(i);
+    groups.get(r)?.push(i) ?? groups.set(r, [i]);
+  });
+  const skip = new Set<number>();
+  const members = new Map<number, number[]>();
+  for (const g of groups.values()) {
+    if (g.length < 2) continue;
+    const rank = (i: number) => (sats[i].norad === 25544 ? 0 : sats[i].intrinsic ? 1 : 2);
+    const rep = [...g].sort((a, b) => rank(a) - rank(b) || sats[a].norad - sats[b].norad)[0];
+    members.set(rep, g.filter((i) => i !== rep));
+    for (const i of g) if (i !== rep) skip.add(i);
+  }
+  return { skip, members };
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +421,8 @@ export interface Pass {
    * Same definition of "Start / Highest point / End" as Heavens-Above's visible-pass tables.
    */
   visible: { start: PassPoint; max: PassPoint; end: PassPoint } | null;
+  /** Brightest predicted magnitude during the visible part (5-s samples), if the object has an intrinsic magnitude. */
+  brightest: { t: number; mag: number; phaseDeg: number; rangeKm: number } | null;
 }
 
 export interface PassOptions {
@@ -288,6 +432,7 @@ export interface PassOptions {
   stepS?: number;
   minAlt?: number;
   sunMax?: number;
+  phaseLaw?: PhaseLaw;
 }
 
 export function findPasses(sat: SatEntry, o: PassOptions): Pass[] {
@@ -353,6 +498,16 @@ export function findPasses(sat: SatEntry, o: PassOptions): Pass[] {
       const maxT = culmT >= s && culmT <= e ? culmT : alt(s) > alt(e) ? s : e;
       visible = { start: point(s), max: point(maxT), end: point(e) };
     }
-    return { rise: point(rise), culmination: point(culmT), set: point(set), visible };
+    let brightest: Pass['brightest'] = null;
+    const m1000 = sat.intrinsic?.m1000;
+    if (visible && m1000 !== undefined) {
+      for (let t = visible.start.t; t <= visible.end.t; t += 5000) {
+        const l = look(t, true);
+        if (!l || !l.sunlit) continue;
+        const mag = visualMagnitude(m1000, l.rangeKm, l.phase, o.phaseLaw);
+        if (!brightest || mag < brightest.mag) brightest = { t, mag, phaseDeg: l.phase * R2D, rangeKm: l.rangeKm };
+      }
+    }
+    return { rise: point(rise), culmination: point(culmT), set: point(set), visible, brightest };
   }
 }

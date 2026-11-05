@@ -1,4 +1,5 @@
 import { json2satrec, twoline2satrec, type OMMJsonObject, type SatRec } from 'satellite.js';
+import { intrinsicFor, type Intrinsic } from './magnitude';
 
 /**
  * Orbital element sets.
@@ -38,6 +39,10 @@ export interface SatEntry {
   norad: number;
   regime: Regime;
   name: string;
+  /** International designator (COSPAR ID), e.g. '1998-067A'. */
+  cospar?: string;
+  /** Published intrinsic (1000-km) magnitude, or null if none applies. */
+  intrinsic: Intrinsic | null;
   /** Element-set epoch (UTC, ms). */
   epoch: number;
   satrec: SatRec;
@@ -91,7 +96,10 @@ export function parseOmmJson(text: string): ParsedSet {
     try {
       const satrec = json2satrec(o as OMMJsonObject);
       if (satrec.error) return failures.push({ id, reason: `SGP4 init error ${satrec.error}` });
-      sats.push({ norad: Number(o.NORAD_CAT_ID), regime: regimeOf(satrec), name: String(o.OBJECT_NAME ?? id).trim(), epoch, satrec, omm: o });
+      const name = String(o.OBJECT_NAME ?? id).trim();
+      const norad = Number(o.NORAD_CAT_ID);
+      const cospar = o.OBJECT_ID ? String(o.OBJECT_ID) : undefined;
+      sats.push({ norad, regime: regimeOf(satrec), name, cospar, intrinsic: intrinsicFor({ norad, name, cospar }), epoch, satrec, omm: o });
     } catch (e) {
       failures.push({ id, reason: String((e as Error)?.message ?? e) });
     }
@@ -136,7 +144,12 @@ export function parseTle(text: string): ParsedSet {
       }
       // satrec.jdsatepoch (+ jdsatepochF in newer versions) is the epoch as a Julian date.
       const jd = satrec.jdsatepoch + ((satrec as any).jdsatepochF ?? 0);
-      sats.push({ norad: decodeAlpha5(id), regime: regimeOf(satrec), name: name || id, epoch: (jd - 2440587.5) * 86_400_000, satrec });
+      const norad = decodeAlpha5(id);
+      // TLE columns 10–17: international designator 'YYNNNPPP' → 'YYYY-NNNPPP' (57–99 → 1900s).
+      const intl = l.slice(9, 17).trim();
+      const yy = Number(intl.slice(0, 2));
+      const cospar = /^\d{5}/.test(intl) ? `${yy < 57 ? 2000 + yy : 1900 + yy}-${intl.slice(2)}` : undefined;
+      sats.push({ norad, regime: regimeOf(satrec), cospar, intrinsic: intrinsicFor({ norad, name: name || id, cospar }), name: name || id, epoch: (jd - 2440587.5) * 86_400_000, satrec });
     } catch (e) {
       failures.push({ id, reason: String((e as Error)?.message ?? e) });
     }

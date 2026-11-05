@@ -199,3 +199,67 @@ describe('orbit regime (Space-Track definitions)', () => {
     expect(parseElementText(FIXTURE).sats.find((s) => s.norad === 25544)!.regime).toBe('LEO');
   });
 });
+
+/** Heavens-Above "Brightness (mag)" for the same 7 passes (brightest point of the visible pass). */
+const HA_MAG: [string, number][] = [
+  ['2026-11-09T09:45:53Z', -1.9],
+  ['2026-11-10T08:59:48Z', -1.5],
+  ['2026-11-10T10:34:02Z', -1.4],
+  ['2026-11-11T09:46:22Z', -3.9],
+  ['2026-11-12T08:58:59Z', -3.0],
+  ['2026-11-12T10:36:08Z', -1.1],
+  ['2026-11-13T09:47:59Z', -2.6],
+];
+
+describe('predicted magnitudes', () => {
+  it('phase laws are 0 at 90° and brighter at small phase angles', async () => {
+    const { phaseTerm, visualMagnitude } = await import('../src/sat/magnitude');
+    for (const law of ['fraction', 'lambert'] as const) {
+      expect(phaseTerm(Math.PI / 2, law)).toBeCloseTo(0, 12);
+      expect(phaseTerm(0.3, law)).toBeLessThan(0);
+      expect(phaseTerm(2.5, law)).toBeGreaterThan(0);
+    }
+    expect(visualMagnitude(7, 1000, Math.PI / 2)).toBeCloseTo(7, 12);
+    expect(visualMagnitude(7, 2000, Math.PI / 2)).toBeCloseTo(7 + 5 * Math.log10(2), 12);
+  });
+
+  it('assigns cited intrinsic magnitudes by object', async () => {
+    const { intrinsicFor } = await import('../src/sat/magnitude');
+    expect(intrinsicFor({ norad: 25544, name: 'ISS (ZARYA)' })?.m1000).toBe(-1.8);
+    expect(intrinsicFor({ norad: 1, name: 'STARLINK-30000', cospar: '2023-026A' })?.key).toBe('SL-Mini-550');
+    expect(intrinsicFor({ norad: 1, name: 'STARLINK-11072 [DTC]', cospar: '2024-002A' })?.key).toBe('SL-Mini-DTC');
+    expect(intrinsicFor({ norad: 1, name: 'STARLINK-1007', cospar: '2019-074A' })?.key).toBe('SL-V1.0');
+    expect(intrinsicFor({ norad: 1, name: 'ONEWEB-0012', cospar: '2019-010A' })?.key).toBe('OneWeb');
+    expect(intrinsicFor({ norad: 1, name: 'COSMOS 2251' })).toBeNull();
+    const big = parseElementText(FIXTURE).sats.find((s) => s.norad === 100001)!; // STARLINK-38128
+    expect(big.intrinsic?.key).toBe('SL-Mini-550');
+  });
+
+  for (const [law, maxRms] of [['fraction', 0.4], ['lambert', 0.8]] as const) {
+    it(`ISS brightness vs Heavens-Above, ${law} law (rms ≤ ${maxRms} mag)`, () => {
+      const iss = parseElementText(FIXTURE).sats.find((s) => s.norad === 25544)!;
+      const passes = findPasses(iss, { start: Date.UTC(2026, 10, 5), end: Date.UTC(2026, 10, 14), site: DEFAULT_SITE, phaseLaw: law }).filter((p) => p.visible);
+      const d = HA_MAG.map(([t, m]) => passes.find((p) => Math.abs(p.visible!.start.t - Date.parse(t)) < 300_000)!.brightest!.mag - m);
+      const mean = d.reduce((a, b) => a + b) / d.length;
+      const rms = Math.sqrt(d.reduce((a, b) => a + b * b, 0) / d.length);
+      if (process.env.SHOW_PASSES) console.log(law, d.map((x) => x.toFixed(2)).join(' '), 'mean', mean.toFixed(2), 'rms', rms.toFixed(2));
+      expect(Math.abs(mean)).toBeLessThan(0.3);
+      expect(rms).toBeLessThanOrEqual(maxRms);
+    });
+  }
+});
+
+describe('co-located objects', () => {
+  it('counts the ISS once even though its docked modules are separate catalogue objects', async () => {
+    const { colocatedGroups } = await import('../src/sat/predict');
+    const iss = OMM.find((o: any) => o.NORAD_CAT_ID === 25544);
+    // Two docked modules with the identical element set, as CelesTrak publishes them.
+    const docked = [iss, { ...iss, NORAD_CAT_ID: 25575, OBJECT_NAME: 'ISS (UNITY)' }, { ...iss, NORAD_CAT_ID: 26400, OBJECT_NAME: 'ISS (ZVEZDA)' }];
+    const sats = parseElementText(JSON.stringify([...docked, ...OMM.filter((o: any) => o.NORAD_CAT_ID !== 25544)])).sats;
+    const t = Date.UTC(2026, 10, 11, 9, 14);
+    const { skip, members } = colocatedGroups(sats, t, t + 2 * 3_600_000);
+    expect(skip.size).toBe(2);
+    const repIdx = sats.findIndex((s) => s.norad === 25544);
+    expect(members.get(repIdx)?.map((i) => sats[i].norad).sort()).toEqual([25575, 26400]);
+  });
+});
