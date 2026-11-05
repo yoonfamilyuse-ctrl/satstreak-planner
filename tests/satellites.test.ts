@@ -340,6 +340,18 @@ describe('co-located objects', () => {
     expect(r.crossings.find((c) => c.norad === 90099)!.train.map((x) => x.norad)).toEqual([90100]);
   });
 
+  it('train check skips far-apart pairs instead of sampling every second (long GEO/MEO crossings)', async () => {
+    const { flagTrains } = await import('../src/sat/predict');
+    const sats = parseElementText(FIXTURE).sats;
+    const byNorad = new Map(sats.map((s) => [s.norad, s]));
+    // Two unrelated objects whose (hypothetical) crossings overlap for the whole 2-h window, as a GEO object does.
+    const c = (norad: number) => ({ norad, name: String(norad), entry: window.start, exit: window.start + 2 * 3_600_000, train: [] as any[] }) as any;
+    const cs = [c(25544), c(900)];
+    const { evaluations } = flagTrains(cs, byNorad);
+    expect(cs[0].train).toEqual([]);
+    expect(evaluations).toBeLessThan(1000); // every-second sampling took 7201
+  });
+
   it('flags crossings within 2 km of another crossing object as a train', () => {
     const sats = parseElementText(JSON.stringify(train)).sats;
     const r = predictCrossings(sats, { ...window, camera: { ...DEFAULT_CAMERA, azimuth: 180, altitude: 60 } });

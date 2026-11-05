@@ -39,6 +39,12 @@ export const TRAIN_KM = 2;
  */
 export const CREWED_STATIONS: readonly number[] = [25544, 48274];
 export const STATION_KM = 2;
+/**
+ * Upper bound on the rate at which two Earth-orbiting objects' separation can change (km/s): each object's speed
+ * on a bound orbit is below the escape speed at its radius, √(2μ/r) ≤ √(2μ/R⊕) = 11.18 km/s with
+ * μ = 398 600.4418 km³ s⁻² (WGS-84, NIMA TR8350.2) and R⊕ = 6378.137 km; two objects: 2 × 11.18 km/s.
+ */
+const V_REL_MAX_KM_S = 2 * Math.sqrt((2 * 398600.4418) / R_EARTH_KM);
 const R2D = 180 / Math.PI;
 
 export type BandKey = 'twilight' | 'dark' | 'gap' | 'outside';
@@ -501,12 +507,9 @@ export function mergeIntoStations(crossings: Crossing[], pointing: PointingCount
  * crossings with overlapping in-frame intervals, the 3-D separation (SGP4, TEME) is sampled every second over the
  * overlap (at least at its start, middle and end) and the minimum is kept.
  */
-export function flagTrains(crossings: Crossing[], byNorad: Map<number, SatEntry>) {
+export function flagTrains(crossings: Crossing[], byNorad: Map<number, SatEntry>): { evaluations: number } {
   const order = crossings.map((_, i) => i).sort((a, b) => crossings[a].entry - crossings[b].entry);
-  const pos = (s: SatEntry, t: number) => {
-    const p = propagate(s.satrec, new Date(t))?.position as { x: number; y: number; z: number } | undefined;
-    return p && Number.isFinite(p.x) ? p : null;
-  };
+  let evaluations = 0;
   for (let a = 0; a < order.length; a++) {
     const ca = crossings[order[a]];
     const sa = byNorad.get(ca.norad);
@@ -518,13 +521,18 @@ export function flagTrains(crossings: Crossing[], byNorad: Map<number, SatEntry>
       if (!sb || cb.norad === ca.norad) continue;
       const t0 = Math.max(ca.entry, cb.entry);
       const t1 = Math.min(ca.exit, cb.exit);
-      const n = Math.max(2, Math.ceil((t1 - t0) / 1000));
+      // Separation can shrink no faster than V_REL_MAX, so after a separation d the next (d − TRAIN_KM)/V_REL_MAX
+      // seconds cannot bring the pair within TRAIN_KM and are skipped. Close pairs are sampled every second.
       let min = Infinity;
-      for (let k = 0; k <= n; k++) {
-        const t = t0 + ((t1 - t0) * k) / n;
-        const p = pos(sa, t);
-        const q = pos(sb, t);
-        if (p && q) min = Math.min(min, Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z));
+      for (let t = t0; ; ) {
+        const p = eciPos(sa, t);
+        const q = eciPos(sb, t);
+        evaluations++;
+        const d = p && q ? Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z) : Infinity;
+        if (d < min) min = d;
+        if (t >= t1) break;
+        const skipS = Number.isFinite(d) ? Math.max(1, (d - TRAIN_KM) / V_REL_MAX_KM_S) : 1;
+        t = Math.min(t1, t + skipS * 1000);
       }
       if (min < TRAIN_KM) {
         const km = +min.toFixed(3);
@@ -533,6 +541,7 @@ export function flagTrains(crossings: Crossing[], byNorad: Map<number, SatEntry>
       }
     }
   }
+  return { evaluations };
 }
 
 // ---------------------------------------------------------------------------
