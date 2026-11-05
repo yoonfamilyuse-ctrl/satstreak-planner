@@ -578,3 +578,10 @@ h1, h2, h3, .iss-big-line, .ns-what b { text-wrap: balance; }
 /* Korean: break between words, not inside them (keep-all), but never overflow. */
 :lang(ko) { word-break: keep-all; overflow-wrap: anywhere; }
 details.site summary > span { flex: none; }
+/* The app name never breaks inside a word; below 300 px it takes its own line above the two buttons. */
+.topbar h1 { overflow-wrap: normal; word-break: normal; min-width: 0; }
+@media (max-width: 300px) {
+  .topbar { flex-wrap: wrap; row-gap: 4px; }
+  .topbar h1 { flex: 1 1 100%; }
+  .topbar-actions { margin-left: auto; }
+}

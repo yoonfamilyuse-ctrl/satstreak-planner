@@ -70,4 +70,10 @@ describe('iOS Safari: native feel', () => {
   it('placeholder text uses the muted token (the browser default grey leaked at night)', () => {
     expect(rules.find(([s]) => s === '::placeholder')?.[1]).toMatch(/color:\s*var\(--muted\)/);
   });
+
+  it('the app name never breaks inside a word, and takes its own line below 300 px (Korean break-ui)', () => {
+    expect(css).toMatch(/\.topbar h1 \{ overflow-wrap: normal; word-break: normal;/);
+    const narrow = [...css.matchAll(/@media \(max-width: 300px\) \{([\s\S]*?)\n\}/g)].map((m) => m[1]).join('\n');
+    expect(narrow).toMatch(/\.topbar \{[^}]*flex-wrap: wrap/);
+  });
 });
