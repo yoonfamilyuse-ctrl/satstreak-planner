@@ -64,3 +64,59 @@ describe('Log tab: night date field', () => {
     await until(() => el.textContent?.includes('Past logs (1)'), 3000, 'log list');
   });
 });
+
+/** Geolocation stub that holds each request so the test decides when (and whether) the fix arrives. */
+function holdGps() {
+  const calls: ((p: GeolocationPosition) => void)[] = [];
+  Object.defineProperty(navigator, 'geolocation', {
+    configurable: true,
+    value: { getCurrentPosition: (ok: (p: GeolocationPosition) => void) => calls.push(ok) },
+  });
+  const fix = (i: number) =>
+    calls[i]!({ coords: { latitude: 37.123456, longitude: 127.654321, altitude: 250, accuracy: 8 } } as GeolocationPosition);
+  return { calls, fix };
+}
+
+describe('Log tab: saving the log that was edited', () => {
+  it('keeps an edit made just before tapping "All logs"', async () => {
+    const { el } = mount();
+    await newLog(el);
+    typeInto(q<HTMLInputElement>(el, '[data-f="observers"]')!, 'J. Park');
+    fire(q(el, '[data-log="back"]')!, 'click'); // well within the 500-ms debounce
+    await sleep(700);
+    const [saved] = await store.listLogs();
+    expect(saved.observers).toBe('J. Park');
+    await until(() => el.textContent?.includes('J. Park'), 3000, 'list showing the edit');
+  });
+
+  it('saves a GPS fix that arrives after the user left the log', async () => {
+    const gps = holdGps();
+    const { el } = mount();
+    await newLog(el);
+    fire(q(el, '[data-log="back"]')!, 'click');
+    await until(() => el.textContent?.includes('Past logs (1)'), 3000, 'log list');
+    gps.fix(0);
+    await sleep(100);
+    const [saved] = await store.listLogs();
+    expect(saved.site).toMatchObject({ latitude: 37.123456, longitude: 127.654321, elevation: 250, accuracyM: 8, source: 'gps' });
+  });
+
+  it('writes a late GPS fix to its own log, not to the log open now', async () => {
+    const gps = holdGps();
+    const { el } = mount();
+    await newLog(el);
+    const firstId = (await store.listLogs())[0].id;
+    fire(q(el, '[data-log="back"]')!, 'click');
+    await sleep(5); // distinct createdAt → distinct id
+    await newLog(el);
+    expect(await store.listLogs()).toHaveLength(2);
+    gps.fix(0); // the first log's request answers while the second log is open
+    await sleep(100);
+    const logs = await store.listLogs();
+    const first = logs.find((l) => l.id === firstId)!;
+    const second = logs.find((l) => l.id !== firstId)!;
+    expect(first.site.source).toBe('gps');
+    expect(second.site.source).toBe('manual');
+    expect(q<HTMLInputElement>(el, '[data-f="site.latitude"]')!.value).not.toBe('37.123456');
+  });
+});

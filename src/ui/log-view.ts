@@ -3,7 +3,7 @@ import type { NightPlan } from '../astro/schedule';
 import { sunAltitude } from '../astro/sun';
 import { bandOf } from '../sat/predict';
 import { ommArrayToTleText } from '../sat/elements';
-import { deleteLog, getNightSet, getSetMeta, getSetText, listLogs, listSets, lockNightSet, putLog, type SetMeta } from '../sat/store';
+import { deleteLog, getLog, getNightSet, getSetMeta, getSetText, listLogs, listSets, lockNightSet, putLog, type SetMeta } from '../sat/store';
 import { loadCamera } from './sat-view';
 import {
   bandFrames,
@@ -62,6 +62,8 @@ export class LogView {
   private el: HTMLElement | null = null;
   private ctx!: LogCtx;
   private saveTimer = 0;
+  /** Log with an edit waiting for the debounced save (saved even if the user has moved to another log). */
+  private pending: FieldLog | null = null;
   private status = '';
   private bound = new WeakSet<HTMLElement>();
   private loaded = false;
@@ -112,6 +114,7 @@ export class LogView {
   }
 
   private async open(log: FieldLog) {
+    await this.flush();
     this.current = log;
     this.issCheck = null;
     await this.syncElementSet(log);
@@ -121,6 +124,7 @@ export class LogView {
   }
 
   private async create() {
+    await this.flush();
     const { date, site, plan } = this.ctx;
     const log = newLog(date);
     // Pre-fill from the plan and the Satellites camera settings.
@@ -137,29 +141,40 @@ export class LogView {
   }
 
   private gps() {
-    if (!this.current || !('geolocation' in navigator)) return;
-    const log = this.current;
+    if (!this.current || !navigator.geolocation) return;
+    const id = this.current.id;
     this.status = 'Getting GPS position…';
     this.paintStatus();
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        log.site = {
-          latitude: +pos.coords.latitude.toFixed(6),
-          longitude: +pos.coords.longitude.toFixed(6),
-          elevation: pos.coords.altitude != null ? Math.round(pos.coords.altitude) : log.site.elevation,
-          accuracyM: Math.round(pos.coords.accuracy),
-          source: 'gps',
-        };
-        this.status = `GPS filled (±${Math.round(pos.coords.accuracy)} m).`;
-        void this.save();
-        if (this.current === log) this.paint();
-      },
+      (pos) => void this.applyGps(id, pos),
       (err) => {
         this.status = `GPS failed: ${err.message}. Site left as the planning site.`;
         this.paintStatus();
       },
       { enableHighAccuracy: true, timeout: 20000 },
     );
+  }
+
+  /**
+   * A fix can take up to 20 s; by then the user may have left this log or opened another one. Write it to the log
+   * it was requested for: the open copy if that log is still open, otherwise the stored copy.
+   */
+  private async applyGps(id: string, pos: GeolocationPosition) {
+    const open = this.current?.id === id;
+    const log = open ? this.current : await getLog(id).catch(() => null);
+    if (!log) return; // deleted meanwhile
+    log.site = {
+      latitude: +pos.coords.latitude.toFixed(6),
+      longitude: +pos.coords.longitude.toFixed(6),
+      elevation: pos.coords.altitude != null ? Math.round(pos.coords.altitude) : log.site.elevation,
+      accuracyM: Math.round(pos.coords.accuracy),
+      source: 'gps',
+    };
+    await this.save(log);
+    if (open && this.current === log) {
+      this.status = `GPS filled (±${Math.round(pos.coords.accuracy)} m).`;
+      this.paint();
+    } else if (!this.current) void this.reload();
   }
 
   private onClick(e: Event) {
@@ -173,8 +188,9 @@ export class LogView {
       return;
     }
     if (act === 'back') {
+      const saved = this.flush(); // the save is queued before the reload reads the list
       this.current = null;
-      return void this.reload();
+      return void saved.then(() => this.reload());
     }
     if (act === 'gps') return this.gps();
     if (act === 'add-reading' || act === 'del-reading') {
@@ -235,25 +251,40 @@ export class LogView {
       if (kind === 'num') v = t.value.trim() === '' || !Number.isFinite(Number(t.value)) ? null : Number(t.value);
       if (t.type === 'datetime-local' && t.value && t.value.length === 16) v = `${t.value}:00`;
       set(this.current, t.dataset.f, v);
-      this.queueSave();
+      this.queueSave(this.current);
       this.paintDerived();
     } else if (t.id === 'conv-exif' || t.id === 'conv-frame') {
       this.paintDerived();
     }
   }
 
-  private queueSave() {
+  /** Debounced save of `log` (the log being edited now, captured at edit time). */
+  private queueSave(log: FieldLog) {
+    if (this.pending && this.pending !== log) void this.save(this.pending);
     clearTimeout(this.saveTimer);
+    this.pending = log;
     this.status = 'Saving…';
     this.paintStatus();
-    this.saveTimer = window.setTimeout(() => void this.save(), 500);
+    this.saveTimer = window.setTimeout(() => void this.flush(), 500);
   }
 
-  private async save() {
-    if (!this.current) return;
-    this.current.updatedAt = Date.now();
+  /** Save a pending debounced edit now. */
+  private flush(): Promise<void> {
+    clearTimeout(this.saveTimer);
+    const log = this.pending;
+    this.pending = null;
+    return log ? this.save(log) : Promise.resolve();
+  }
+
+  private async save(log: FieldLog | null = this.current) {
+    if (!log) return;
+    if (this.pending === log) {
+      clearTimeout(this.saveTimer);
+      this.pending = null;
+    }
+    log.updatedAt = Date.now();
     try {
-      await putLog(this.current);
+      await putLog(log);
       this.status = `Saved on this device ${fmtHMS(new Date())}`;
     } catch (e) {
       this.status = `NOT saved: ${(e as Error).message}`;

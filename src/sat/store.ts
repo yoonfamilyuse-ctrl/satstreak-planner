@@ -121,6 +121,10 @@ export async function listLogs(): Promise<FieldLog[]> {
   return all.sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt - a.updatedAt);
 }
 
+export async function getLog(id: string): Promise<FieldLog | null> {
+  return (await tx<FieldLog | undefined>(['logs'], 'readonly', (t) => t.objectStore('logs').get(id))) ?? null;
+}
+
 export function putLog(log: FieldLog): Promise<void> {
   return tx(['logs'], 'readwrite', (t) => {
     t.objectStore('logs').put(log);
