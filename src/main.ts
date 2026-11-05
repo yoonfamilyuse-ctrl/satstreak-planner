@@ -5,12 +5,14 @@ import { outlook } from './outlook';
 import { loadSite, resetSite, saveSite, validateSite } from './site';
 import { addDays, fmtLongDate, isValidDateString, todayKST } from './time';
 import { cachedForecast, cloudAverage, fetchForecast, type CloudForecast } from './weather/openmeteo';
-import { renderNight } from './ui/night-view';
+import { NightView } from './ui/night-view';
 import { renderOutlook, type ForecastStatus } from './ui/outlook-view';
 import { SatView } from './ui/sat-view';
 import { LogView } from './ui/log-view';
 
 const NIGHT_KEY = 'satstreak.night';
+const CHEVRON_LEFT = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CHEVRON_RIGHT = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 type View = 'night' | 'outlook' | 'sats' | 'log';
 
 const state: { view: View; date: string; site: Site; fc: CloudForecast | null; fs: ForecastStatus } = {
@@ -27,7 +29,7 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <header class="topbar">
     <h1>Sat-Streak Planner</h1>
-    <button id="night-toggle" type="button" aria-pressed="false">Night mode</button>
+    <button id="night-toggle" type="button" aria-pressed="false">Night</button>
   </header>
   <nav class="tabs" role="tablist">
     <button type="button" role="tab" data-view="night">Night</button>
@@ -36,15 +38,18 @@ app.innerHTML = `
     <button type="button" role="tab" data-view="log">Log</button>
   </nav>
   <main>
-    <section class="card" aria-label="Date and site">
+    <section class="datebar" aria-label="Date and site">
       <div id="date-block">
         <div class="date-row">
-          <button type="button" data-day="-1" aria-label="Previous day">‹</button>
-          <input id="date" type="date" aria-label="Observation date (evening, KST)" />
-          <button type="button" data-day="1" aria-label="Next day">›</button>
-          <button type="button" id="today">Tonight</button>
+          <button type="button" class="icon-btn" data-day="-1" aria-label="Previous night">${CHEVRON_LEFT}</button>
+          <label class="date-pick">
+            <span class="date-main" id="date-label"></span>
+            <span class="date-sub">evening, KST · tap to pick</span>
+            <input id="date" type="date" aria-label="Observation date (evening, KST)" />
+          </label>
+          <button type="button" class="icon-btn" data-day="1" aria-label="Next night">${CHEVRON_RIGHT}</button>
+          <button type="button" id="today" class="pill-btn">Tonight</button>
         </div>
-        <p class="date-label" id="date-label"></p>
       </div>
       <details class="site">
         <summary>Site: <b id="site-summary"></b></summary>
@@ -82,8 +87,8 @@ function setNight(on: boolean) {
   if (on) document.documentElement.dataset.theme = 'night';
   else delete document.documentElement.dataset.theme;
   nightBtn.setAttribute('aria-pressed', String(on));
-  nightBtn.textContent = on ? 'Night: ON' : 'Night mode';
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', on ? '#000000' : '#0d1117');
+  nightBtn.textContent = on ? 'Night on' : 'Night';
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', on ? '#000000' : '#e9e7e2');
   try {
     localStorage.setItem(NIGHT_KEY, on ? '1' : '0');
   } catch {
@@ -225,6 +230,7 @@ function render() {
 
   if (state.view !== 'sats') satView.detach();
   if (state.view !== 'log') logView.detach();
+  if (state.view !== 'night') nightView.detach();
   if (state.view === 'outlook') {
     results.innerHTML = renderOutlook(outlook(todayKST(), state.site, state.fc), state.fs);
     results.querySelector<HTMLButtonElement>('#fc-refresh')?.addEventListener('click', () => loadForecast(true));
@@ -232,7 +238,7 @@ function render() {
   }
 
   dateInput.value = state.date;
-  $('#date-label').textContent = `Evening of ${fmtLongDate(state.date)}`;
+  $('#date-label').textContent = fmtLongDate(state.date);
   const plan = computeNight(state.date, state.site);
   if (state.view === 'sats' || state.view === 'log') {
     satCtx = { date: state.date, site: state.site, plan };
@@ -241,12 +247,13 @@ function render() {
   }
   // undefined → forecast not loaded (line hidden); null → loaded but date outside the forecast range.
   const cloud = state.fc && plan.window ? cloudAverage(state.fc, plan.window.start, plan.window.end) : state.fc ? null : undefined;
-  results.innerHTML = renderNight(plan, cloud);
+  nightView.render(results, plan, cloud);
 }
 
 let satCtx: { date: string; site: Site; plan: ReturnType<typeof computeNight> } | null = null;
 const satView = new SatView(() => satCtx!);
 const logView = new LogView(() => satCtx!);
+const nightView = new NightView();
 
 fillSiteForm(state.site);
 applyHash();
