@@ -70,8 +70,9 @@ export function fmtDuration(ms: number): string {
 }
 
 const shortDate = new Intl.DateTimeFormat('en-GB', { timeZone: TIME_ZONE, weekday: 'short', month: 'short', day: 'numeric' });
-/** e.g. 'Wed 11 Nov' */
+/** e.g. 'Wed 11 Nov'. A malformed date string is returned as is ('—' if empty) instead of throwing. */
 export function fmtShortDate(dateStr: string): string {
+  if (!isValidDateString(dateStr)) return dateStr || '—';
   return shortDate.format(kstNoon(dateStr)).replace(',', '');
 }
 

@@ -24,7 +24,7 @@ import { makeZip } from '../log/zip';
 import { SatWorker } from '../sat/client';
 import { DEFAULT_CAMERA, inFov, makeFov } from '../sat/fov';
 import { compass } from '../astro/moon';
-import { fileStamp, fmtDateTime, fmtHM, fmtHMS, fmtShortDate } from '../time';
+import { fileStamp, fmtDateTime, fmtHM, fmtHMS, fmtShortDate, isValidDateString } from '../time';
 import { esc } from './util';
 
 export interface LogCtx {
@@ -225,6 +225,11 @@ export class LogView {
     const t = e.target as HTMLInputElement;
     if (!this.current) return;
     if (t.dataset.f) {
+      // A cleared or half-typed date input reports ''. Keep the stored night instead of saving an invalid date.
+      if (t.dataset.f === 'date' && !isValidDateString(t.value)) {
+        this.status = 'Night not changed: enter a complete date.';
+        return this.paintStatus();
+      }
       const kind = t.dataset.kind;
       let v: unknown = t.value;
       if (kind === 'num') v = t.value.trim() === '' || !Number.isFinite(Number(t.value)) ? null : Number(t.value);
