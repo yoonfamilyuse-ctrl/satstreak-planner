@@ -38,9 +38,19 @@ const DB_NAME = 'satstreak';
 /** v1: sets, setData, nightSets. v2 (Stage 4): logs. Upgrades keep existing data. */
 const DB_VERSION = 2;
 
+export const BLOCKED_MESSAGE = 'This app is open in another tab or window with an older version. Close it, then reload this page.';
+
 let dbp: Promise<IDBDatabase> | null = null;
+/**
+ * Open (and upgrade) the database. An upgrade waits until every other connection closes, so:
+ *  - `blocked` (another tab still runs an older build and holds a connection) rejects with BLOCKED_MESSAGE
+ *    instead of waiting forever; the next call tries again.
+ *  - our connection closes itself on `versionchange`, so a newer build in another tab is never blocked by us.
+ */
 function db(): Promise<IDBDatabase> {
-  dbp ??= new Promise((resolve, reject) => {
+  if (dbp) return dbp;
+  const p = new Promise<IDBDatabase>((resolve, reject) => {
+    let gaveUp = false;
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const d = req.result;
@@ -49,10 +59,27 @@ function db(): Promise<IDBDatabase> {
       if (!d.objectStoreNames.contains('nightSets')) d.createObjectStore('nightSets', { keyPath: 'date' });
       if (!d.objectStoreNames.contains('logs')) d.createObjectStore('logs', { keyPath: 'id' });
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onblocked = () => {
+      gaveUp = true;
+      if (dbp === p) dbp = null;
+      reject(new Error(BLOCKED_MESSAGE));
+    };
+    req.onsuccess = () => {
+      const d = req.result;
+      if (gaveUp) return d.close(); // opened after we reported "blocked"; the next call opens again
+      d.onversionchange = () => {
+        d.close();
+        if (dbp === p) dbp = null;
+      };
+      resolve(d);
+    };
+    req.onerror = () => {
+      if (dbp === p) dbp = null;
+      reject(req.error);
+    };
   });
-  return dbp;
+  dbp = p;
+  return p;
 }
 
 function tx<T>(stores: string[], mode: IDBTransactionMode, fn: (t: IDBTransaction) => IDBRequest<T> | void): Promise<T> {
