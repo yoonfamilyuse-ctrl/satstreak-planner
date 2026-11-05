@@ -26,8 +26,11 @@ import { phaseTerm, visualMagnitude, type PhaseLaw } from './magnitude';
 
 export const R_EARTH_KM = 6378.137; // WGS-84 equatorial radius
 const D2R = Math.PI / 180;
-/** Objects closer than this at both the start and the end of the window are one physical object (one streak). */
-export const COLOCATED_KM = 2;
+/**
+ * Crossing objects closer than this (3-D, while both are in the frame) are flagged as a train: their streaks may
+ * overlap or run side by side in the photos. Only identical element sets are merged (see colocatedGroups).
+ */
+export const TRAIN_KM = 2;
 const R2D = 180 / Math.PI;
 
 export type BandKey = 'twilight' | 'dark' | 'gap' | 'outside';
@@ -169,8 +172,13 @@ export interface Crossing {
   magKey: string | null;
   /** Starlink version from GCAT, if a Starlink. */
   starlinkVersion?: string;
-  /** Other catalogue objects co-located with this one (docked modules/vehicles), merged into this crossing. */
+  /** Other catalogue objects with the identical element set (docked modules/vehicles), merged into this crossing. */
   merged: { norad: number; name: string }[];
+  /**
+   * Other crossing objects that come within TRAIN_KM of this one while both are in the frame (e.g. a fresh
+   * launch train), with the smallest separation found (km). Empty if none. Each object still has its own crossing.
+   */
+  train: { norad: number; name: string; minKm: number }[];
 }
 
 export interface Track {
@@ -216,7 +224,7 @@ export interface PredictInput {
 export interface PredictResult {
   objects: number;
   propagationFailed: number;
-  /** Catalogue objects merged into a co-located representative (e.g. ISS modules and docked vehicles). */
+  /** Catalogue objects merged into a representative with the identical element set (ISS modules, docked vehicles). */
   mergedObjects: number;
   crossings: Crossing[];
   tracks: Track[];
@@ -244,9 +252,9 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
   const tracks: Track[] = [];
   let propagationFailed = 0;
 
-  // Co-located objects (docked modules and visiting vehicles: the ISS appears as ~10 catalogue entries) would
-  // otherwise be counted several times. Group objects within COLOCATED_KM at both window start and end.
-  const { skip, members } = colocatedGroups(sats, times[0], times[K - 1]);
+  // Docked modules and visiting vehicles (the ISS appears as ~10 catalogue entries) share one element set and
+  // would otherwise be counted several times. Only identical element sets are merged; a launch train is not.
+  const { skip, members } = colocatedGroups(sats);
 
   const runStart = new Int32Array(F);
   const runMax = new Float64Array(F);
@@ -371,6 +379,7 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
         magKey: sat.intrinsic?.key ?? null,
         starlinkVersion: sat.starlinkVersion,
         merged: (members.get(i) ?? []).map((j) => ({ norad: sats[j].norad, name: sats[j].name })),
+        train: [],
       });
     }
     const segments: [number, number][][] = [];
@@ -382,48 +391,26 @@ export function predictCrossings(sats: SatEntry[], inp: PredictInput, onProgress
     }
     tracks.push({ norad: sat.norad, regime: sat.regime, band: firstBand!, segments });
   }
+  flagTrains(crossings, new Map(sats.map((s) => [s.norad, s])));
   onProgress?.(1);
   crossings.sort((a, b) => a.entry - b.entry);
   return { objects: sats.length, propagationFailed, mergedObjects: skip.size, crossings, tracks, pointing, steps: K, elapsedMs: performance.now() - t0 };
 }
 
 /**
- * Groups of co-located objects. Representative: ISS (25544) if present in the group, else an object with a
- * published magnitude, else the lowest catalogue number. Returns indices to skip and each representative's members.
+ * Groups of objects with the IDENTICAL element set (same epoch and mean elements): this is how docked modules
+ * and visiting vehicles appear in the catalogue (CelesTrak publishes the station's elements for each of them),
+ * so they are one physical object and one streak. Objects that are merely close (a fresh launch train) have
+ * distinct element sets and are not merged; flagTrains marks them instead.
+ * Representative: ISS (25544) if present in the group, else an object with a published magnitude, else the
+ * lowest catalogue number. Returns indices to skip and each representative's members.
  */
-export function colocatedGroups(sats: SatEntry[], tA: number, tB: number) {
-  const pos = (s: SatEntry, t: number) => {
-    const pv = propagate(s.satrec, new Date(t));
-    const p = pv?.position as { x: number; y: number; z: number } | undefined;
-    return p && Number.isFinite(p.x) ? p : null;
-  };
-  const A = sats.map((s) => pos(s, tA));
-  const B = sats.map((s) => pos(s, tB));
-  const cell = (p: { x: number; y: number; z: number }) => `${Math.floor(p.x / 10)},${Math.floor(p.y / 10)},${Math.floor(p.z / 10)}`;
-  const grid = new Map<string, number[]>();
-  A.forEach((p, i) => {
-    if (!p) return;
-    const k = cell(p);
-    grid.get(k)?.push(i) ?? grid.set(k, [i]);
-  });
-  const parent = sats.map((_, i) => i);
-  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
-  const d = (p: { x: number; y: number; z: number }, q: { x: number; y: number; z: number }) => Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
-  A.forEach((p, i) => {
-    if (!p || !B[i]) return;
-    const [cx, cy, cz] = [Math.floor(p.x / 10), Math.floor(p.y / 10), Math.floor(p.z / 10)];
-    for (let dx = -1; dx <= 1; dx++)
-      for (let dy = -1; dy <= 1; dy++)
-        for (let dz = -1; dz <= 1; dz++)
-          for (const j of grid.get(`${cx + dx},${cy + dy},${cz + dz}`) ?? []) {
-            if (j <= i || !A[j] || !B[j]) continue;
-            if (d(p, A[j]!) < COLOCATED_KM && d(B[i]!, B[j]!) < COLOCATED_KM) parent[find(j)] = find(i);
-          }
-  });
-  const groups = new Map<number, number[]>();
-  sats.forEach((_, i) => {
-    const r = find(i);
-    groups.get(r)?.push(i) ?? groups.set(r, [i]);
+export function colocatedGroups(sats: SatEntry[]) {
+  const key = (r: SatRec) => [r.epochyr, r.epochdays, r.inclo, r.nodeo, r.ecco, r.argpo, r.mo, r.no].join('|');
+  const groups = new Map<string, number[]>();
+  sats.forEach((s, i) => {
+    const k = key(s.satrec);
+    groups.get(k)?.push(i) ?? groups.set(k, [i]);
   });
   const skip = new Set<number>();
   const members = new Map<number, number[]>();
@@ -435,6 +422,45 @@ export function colocatedGroups(sats: SatEntry[], tA: number, tB: number) {
     for (const i of g) if (i !== rep) skip.add(i);
   }
   return { skip, members };
+}
+
+/**
+ * Mark crossings whose objects come within TRAIN_KM of each other while both are in the frame. For each pair of
+ * crossings with overlapping in-frame intervals, the 3-D separation (SGP4, TEME) is sampled every second over the
+ * overlap (at least at its start, middle and end) and the minimum is kept.
+ */
+export function flagTrains(crossings: Crossing[], byNorad: Map<number, SatEntry>) {
+  const order = crossings.map((_, i) => i).sort((a, b) => crossings[a].entry - crossings[b].entry);
+  const pos = (s: SatEntry, t: number) => {
+    const p = propagate(s.satrec, new Date(t))?.position as { x: number; y: number; z: number } | undefined;
+    return p && Number.isFinite(p.x) ? p : null;
+  };
+  for (let a = 0; a < order.length; a++) {
+    const ca = crossings[order[a]];
+    const sa = byNorad.get(ca.norad);
+    if (!sa) continue;
+    for (let b = a + 1; b < order.length; b++) {
+      const cb = crossings[order[b]];
+      if (cb.entry > ca.exit) break; // sorted by entry: no later crossing overlaps ca
+      const sb = byNorad.get(cb.norad);
+      if (!sb || cb.norad === ca.norad) continue;
+      const t0 = Math.max(ca.entry, cb.entry);
+      const t1 = Math.min(ca.exit, cb.exit);
+      const n = Math.max(2, Math.ceil((t1 - t0) / 1000));
+      let min = Infinity;
+      for (let k = 0; k <= n; k++) {
+        const t = t0 + ((t1 - t0) * k) / n;
+        const p = pos(sa, t);
+        const q = pos(sb, t);
+        if (p && q) min = Math.min(min, Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z));
+      }
+      if (min < TRAIN_KM) {
+        const km = +min.toFixed(3);
+        ca.train.push({ norad: cb.norad, name: cb.name, minKm: km });
+        cb.train.push({ norad: ca.norad, name: ca.name, minKm: km });
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

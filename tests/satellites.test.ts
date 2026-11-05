@@ -275,11 +275,48 @@ describe('co-located objects', () => {
     // Two docked modules with the identical element set, as CelesTrak publishes them.
     const docked = [iss, { ...iss, NORAD_CAT_ID: 25575, OBJECT_NAME: 'ISS (UNITY)' }, { ...iss, NORAD_CAT_ID: 26400, OBJECT_NAME: 'ISS (ZVEZDA)' }];
     const sats = parseElementText(JSON.stringify([...docked, ...OMM.filter((o: any) => o.NORAD_CAT_ID !== 25544)])).sats;
-    const t = Date.UTC(2026, 10, 11, 9, 14);
-    const { skip, members } = colocatedGroups(sats, t, t + 2 * 3_600_000);
+    const { skip, members } = colocatedGroups(sats);
     expect(skip.size).toBe(2);
     const repIdx = sats.findIndex((s) => s.norad === 25544);
     expect(members.get(repIdx)?.map((i) => sats[i].norad).sort()).toEqual([25575, 26400]);
+  });
+
+  /**
+   * A freshly deployed train: same orbit, objects spaced along track. Distinct element sets (here the mean
+   * anomaly differs by 0.005°, ≈ 0.6 km at ISS altitude), so each is its own object and its own streak.
+   */
+  const iss = OMM.find((o: any) => o.NORAD_CAT_ID === 25544);
+  const train = [
+    { ...iss, NORAD_CAT_ID: 90001, OBJECT_NAME: 'TRAIN-1' },
+    { ...iss, NORAD_CAT_ID: 90002, OBJECT_NAME: 'TRAIN-2', MEAN_ANOMALY: iss.MEAN_ANOMALY + 0.005 },
+    { ...iss, NORAD_CAT_ID: 90003, OBJECT_NAME: 'TRAIN-3', MEAN_ANOMALY: iss.MEAN_ANOMALY + 0.01 },
+    // ≈ 6 km behind: same pass, but not close enough to overlap as a train.
+    { ...iss, NORAD_CAT_ID: 90004, OBJECT_NAME: 'TRAIN-4', MEAN_ANOMALY: iss.MEAN_ANOMALY + 0.05 },
+  ];
+  const window = { start: Date.UTC(2026, 10, 11, 9, 14, 0), end: Date.UTC(2026, 10, 11, 11, 20, 40), stepS: 10, site: DEFAULT_SITE, pointing: [] };
+
+  it('does not merge a launch train: objects within 2 km with distinct element sets are counted separately', async () => {
+    const { colocatedGroups } = await import('../src/sat/predict');
+    const sats = parseElementText(JSON.stringify(train)).sats;
+    expect(colocatedGroups(sats).skip.size).toBe(0);
+    // The ISS S/60° crossing of 2026-11-11 (see above): every train object crosses the frame.
+    const r = predictCrossings(sats, { ...window, camera: { ...DEFAULT_CAMERA, azimuth: 180, altitude: 60 } });
+    expect(r.mergedObjects).toBe(0);
+    expect(r.crossings.map((c) => c.norad).sort()).toEqual([90001, 90002, 90003, 90004]);
+  });
+
+  it('flags crossings within 2 km of another crossing object as a train', () => {
+    const sats = parseElementText(JSON.stringify(train)).sats;
+    const r = predictCrossings(sats, { ...window, camera: { ...DEFAULT_CAMERA, azimuth: 180, altitude: 60 } });
+    const by = (n: number) => r.crossings.find((c) => c.norad === n)!;
+    expect(by(90001).train.map((x) => x.norad).sort()).toEqual([90002, 90003]);
+    expect(by(90002).train.map((x) => x.norad).sort()).toEqual([90001, 90003]);
+    expect(by(90003).train.map((x) => x.norad).sort()).toEqual([90001, 90002]);
+    expect(by(90004).train).toEqual([]);
+    for (const x of by(90002).train) expect(x.minKm).toBeLessThan(2);
+    // The real sample set has no trains.
+    const real = predictCrossings(parseElementText(FIXTURE).sats, { ...window, camera: { ...DEFAULT_CAMERA, azimuth: 180, altitude: 60 } });
+    expect(real.crossings.every((c) => c.train.length === 0)).toBe(true);
   });
 });
 

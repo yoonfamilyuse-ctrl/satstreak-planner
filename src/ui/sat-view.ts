@@ -9,7 +9,7 @@ import { CAMERA as CAMERA_SETTINGS } from '../config';
 import { CELESTRAK_ACTIVE_URL, CELESTRAK_LABEL, downloadActive, nextAllowedAt } from '../sat/celestrak';
 import { SatWorker } from '../sat/client';
 import { angularSeparation, azimuthDifference, DEFAULT_CAMERA, fieldOfView, fovOutline, makeFov, pointingGrid, type Camera } from '../sat/fov';
-import type { BandKey, Crossing, Pass, PredictResult } from '../sat/predict';
+import { TRAIN_KM, type BandKey, type Crossing, type Pass, type PredictResult } from '../sat/predict';
 import { getNightSet, getSetText, listNightSets, listSets, lockNightSet, deleteSet, putSet, type NightSet, type SetMeta } from '../sat/store';
 import { DAY_MS, fileStamp, fmtDateTime, fmtHM, fmtHMS, fmtShortDate, kstDateString, kstNoon, todayKST } from '../time';
 import { skyChart } from './skychart';
@@ -369,7 +369,7 @@ export class SatView {
   private exportCrossings() {
     if (!this.result) return;
     const m = this.meta(this.result.setId);
-    const head = ['norad', 'name', 'regime', 'band', 'entry_utc', 'exit_utc', 'entry_kst', 'exit_kst', 'duration_s', 'entry_az', 'entry_alt', 'exit_az', 'exit_alt', 'max_alt', 'entry_clipped', 'exit_clipped', 'element_epoch_utc', 'mag_pred', 'm1000', 'm1000_assumed', 'mag_source', 'mag_geometric_part', 'starlink_version', 'angular_speed_deg_s', 'trail_px', 'n_samples', 'limit_peak', 'detectable_peak', 'limit_matched', 'detectable_matched', 'limit_fixed', 'detectable_fixed', 'merged_colocated_norad'];
+    const head = ['norad', 'name', 'regime', 'band', 'entry_utc', 'exit_utc', 'entry_kst', 'exit_kst', 'duration_s', 'entry_az', 'entry_alt', 'exit_az', 'exit_alt', 'max_alt', 'entry_clipped', 'exit_clipped', 'element_epoch_utc', 'mag_pred', 'm1000', 'm1000_assumed', 'mag_source', 'mag_geometric_part', 'starlink_version', 'angular_speed_deg_s', 'trail_px', 'n_samples', 'limit_peak', 'detectable_peak', 'limit_matched', 'detectable_matched', 'limit_fixed', 'detectable_fixed', 'merged_colocated_norad', 'train', 'train_neighbors_norad', 'train_min_sep_km'];
     const rows = this.result.r.crossings.map((c) => {
       const d = this.det(c);
       return [
@@ -406,6 +406,9 @@ export class SatView {
         d.fixed.limit?.toFixed(2) ?? '',
         d.fixed.detectable ?? '',
         c.merged.map((x) => x.norad).join(' '),
+        c.train.length > 0,
+        c.train.map((x) => x.norad).join(' '),
+        c.train.length ? Math.min(...c.train.map((x) => x.minKm)).toFixed(3) : '',
       ]
         .map(csvCell)
         .join(',');
@@ -586,7 +589,7 @@ export class SatView {
       .map(
         (c: Crossing) => `<tr class="${c.band === 'twilight' || c.band === 'dark' ? c.band : ''}">
           <td class="t tnum">${fmtHMS(new Date(c.entry))}${c.entryClipped ? '*' : ''}<div class="sec">${fmtHMS(new Date(c.exit))}${c.exitClipped ? '*' : ''}</div></td>
-          <td>${esc(c.name)}<div class="sec tnum">${c.norad} · ${c.regime}${c.starlinkVersion ? ` · ${c.starlinkVersion === 'uncertain' || c.starlinkVersion === 'not-in-gcat' ? `<b>version ${c.starlinkVersion}</b>` : c.starlinkVersion}` : ''}${c.merged.length ? ` · +${c.merged.length} docked` : ''}</div></td>
+          <td>${esc(c.name)}<div class="sec tnum">${c.norad} · ${c.regime}${c.starlinkVersion ? ` · ${c.starlinkVersion === 'uncertain' || c.starlinkVersion === 'not-in-gcat' ? `<b>version ${c.starlinkVersion}</b>` : c.starlinkVersion}` : ''}${c.merged.length ? ` · +${c.merged.length} docked` : ''}${c.train.length ? ` · <b>train</b> (${c.train.length} within ${TRAIN_KM} km)` : ''}</div></td>
           <td class="r tnum">${deg(c.maxAlt, 0)}</td>
           <td class="r tnum">${this.magCell(c)}</td>
           <td class="r">${BAND_LABEL[c.band]}</td></tr>`,
@@ -598,7 +601,7 @@ export class SatView {
       ${this.issTonight(res.r, res.issPasses)}
       ${this.magSettings()}
       <div class="stats">${stat('twilight')}${stat('dark')}</div>
-      <p class="note tnum">Also ${count('gap')} between the bands and ${count('outside')} in the 5-min margins. ${r.objects.toLocaleString()} objects propagated, ${r.propagationFailed} failed (decayed / SGP4 error), ${r.mergedObjects} merged into co-located objects (docked modules/vehicles, &lt; 2 km apart) · ${r.steps} steps · ${(r.elapsedMs / 1000).toFixed(1)} s. Elements: ${m ? fmtDateTime(m.downloadedAt) : '?'} KST.</p>
+      <p class="note tnum">Also ${count('gap')} between the bands and ${count('outside')} in the 5-min margins. ${r.objects.toLocaleString()} objects propagated, ${r.propagationFailed} failed (decayed / SGP4 error), ${r.mergedObjects} merged (identical element sets: docked modules/vehicles), ${r.crossings.filter((c) => c.train.length).length} crossings flagged train (another crossing object within ${TRAIN_KM} km) · ${r.steps} steps · ${(r.elapsedMs / 1000).toFixed(1)} s. Elements: ${m ? fmtDateTime(m.downloadedAt) : '?'} KST.</p>
       ${chart}
       <h3>Crossing list (${crossings.length})</h3>
       <div class="scroll-y"><table><thead><tr><th>Enter / exit (KST)</th><th>Object</th><th class="r">Max alt</th><th class="r">Mag</th><th class="r">Band</th></tr></thead><tbody>${rows}</tbody></table></div>
