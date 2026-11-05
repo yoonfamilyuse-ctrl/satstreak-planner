@@ -143,3 +143,63 @@ describe('Log tab: delete', () => {
     await until(() => el.textContent?.includes('Past logs (0)'), 3000, 'empty list');
   });
 });
+
+/** Parse a header + one-row CSV (RFC 4180 quoting) into an object. */
+function csvRow(text: string): Record<string, string> {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') (cell += '"'), i++;
+      else if (c === '"') quoted = false;
+      else cell += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',') row.push(cell), (cell = '');
+    else if (c === '\n') row.push(cell), rows.push(row), (row = []), (cell = '');
+    else cell += c;
+  }
+  const [head, vals] = rows;
+  return Object.fromEntries(head.map((h, i) => [h, vals[i]]));
+}
+
+/** Capture files the view hands to the browser for download. */
+function captureDownloads() {
+  const files: Blob[] = [];
+  vi.spyOn(URL, 'createObjectURL').mockImplementation((b) => (files.push(b as Blob), 'blob:test'));
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  return files;
+}
+
+describe('Log tab: export uses the log’s own night', () => {
+  it('derives band frames and Sun times from log.date even when the selector shows another night', async () => {
+    const { formatKst, bandFrames, parseKst } = await import('../src/log/fieldlog');
+    const files = captureDownloads();
+    const own = ctxFor(DATE).plan;
+    const { el, setDate } = mount(DATE);
+    await newLog(el);
+    const start = formatKst(own.window!.start.getTime());
+    typeInto(q<HTMLInputElement>(el, '[data-f="start"]')!, start);
+    fire(q(el, '[data-log="back"]')!, 'click');
+    await until(() => q(el, '[data-log="open"]'), 3000, 'log list');
+
+    setDate('2026-11-20'); // the user browses to another night, then opens the older log
+    fire(q(el, '[data-log="open"]')!, 'click');
+    await until(() => q(el, '[data-f="observers"]'), 3000, 'log form');
+    fire(q(el, '[data-log="csv"]')!, 'click');
+    await until(() => files.length, 3000, 'CSV download');
+
+    const row = csvRow(await files[0].text());
+    expect(row.date).toBe(DATE);
+    expect(row.sun_minus12_kst).toBe(formatKst(own.sun.descending[-12]!.getTime()));
+    expect(row.sun_minus35_kst).toBe(formatKst(own.sun.descending[-35]!.getTime()));
+    const t0 = parseKst(start)!; // whole seconds, as entered
+    const expected = bandFrames(t0, 16, own.window!.shots, own.bands);
+    expect(row.twilight_first_frame).toBe(String(expected[0].firstFrame));
+    expect(row.dark_last_frame).toBe(String(expected[1].lastFrame));
+    expect(row.start_offset_from_plan_s).toBe(String(+((t0 - own.window!.start.getTime()) / 1000).toFixed(1)));
+  });
+});

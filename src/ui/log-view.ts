@@ -1,5 +1,5 @@
 import type { Site } from '../config';
-import type { NightPlan } from '../astro/schedule';
+import { computeNight, type NightPlan } from '../astro/schedule';
 import { sunAltitude } from '../astro/sun';
 import { bandOf } from '../sat/predict';
 import { ommArrayToTleText } from '../sat/elements';
@@ -71,6 +71,7 @@ export class LogView {
   private loaded = false;
   private worker: SatWorker | null = null;
   private issCheck: { html: string; csv: string } | null = null;
+  private planCache: { key: string; plan: NightPlan } | null = null;
 
   constructor(private getCtx: () => LogCtx) {}
 
@@ -301,22 +302,39 @@ export class LogView {
 
   // ---------------------------------------------------------------- derived timing
 
+  /**
+   * Night plan (solar bands, planned window) for the log's own night at the planning site. The date selector may
+   * show another night; derived timing and exports must not use that one. Null if the stored date is malformed.
+   */
+  private planFor(log: FieldLog): NightPlan | null {
+    const { date, site, plan } = this.ctx;
+    if (log.date === date) return plan;
+    if (!isValidDateString(log.date)) return null;
+    const key = JSON.stringify([log.date, site.latitude, site.longitude, site.elevation]);
+    if (this.planCache?.key !== key) this.planCache = { key, plan: computeNight(log.date, site) };
+    return this.planCache.plan;
+  }
+
   private derived() {
     const log = this.current!;
-    const plan = this.ctx.plan;
+    const plan = this.planFor(log);
     const clock = clockModel(log);
     const { start, end, corrected } = trueStartEnd(log);
     const interval = log.camera.intervalS ?? 16;
     const shots = log.camera.shotsTaken ?? log.camera.shotsPlanned;
     const eff = effectiveInterval(start, end, shots);
-    const bands = start !== null ? bandFrames(start, interval, shots, plan.bands) : [];
-    const lateS = start !== null && plan.window ? (start - plan.window.start.getTime()) / 1000 : null;
-    return { clock, start, end, corrected, interval, shots, eff, bands, lateS };
+    const bands = start !== null && plan ? bandFrames(start, interval, shots, plan.bands) : [];
+    const lateS = start !== null && plan?.window ? (start - plan.window.start.getTime()) / 1000 : null;
+    return { plan, clock, start, end, corrected, interval, shots, eff, bands, lateS };
   }
 
   private derivedFlat(): Record<string, string | number | null> {
     const d = this.derived();
     const bf = (k: string) => d.bands.find((b) => b.key === k);
+    const sunAt = (alt: keyof NightPlan['sun']['descending']) => {
+      const t = d.plan?.sun.descending[alt];
+      return t ? formatKst(t.getTime()) : null;
+    };
     return {
       clock_offset_before_s: d.clock.before !== null ? +d.clock.before.toFixed(3) : null,
       clock_offset_before_n: d.clock.beforeDetail?.n ?? null,
@@ -333,10 +351,10 @@ export class LogView {
       twilight_last_frame: bf('twilight')?.lastFrame ?? null,
       dark_first_frame: bf('dark')?.firstFrame ?? null,
       dark_last_frame: bf('dark')?.lastFrame ?? null,
-      sun_minus12_kst: this.ctx.plan.sun.descending[-12] ? formatKst(this.ctx.plan.sun.descending[-12]!.getTime()) : null,
-      sun_minus20_kst: this.ctx.plan.sun.descending[-20] ? formatKst(this.ctx.plan.sun.descending[-20]!.getTime()) : null,
-      sun_minus25_kst: this.ctx.plan.sun.descending[-25] ? formatKst(this.ctx.plan.sun.descending[-25]!.getTime()) : null,
-      sun_minus35_kst: this.ctx.plan.sun.descending[-35] ? formatKst(this.ctx.plan.sun.descending[-35]!.getTime()) : null,
+      sun_minus12_kst: sunAt(-12),
+      sun_minus20_kst: sunAt(-20),
+      sun_minus25_kst: sunAt(-25),
+      sun_minus35_kst: sunAt(-35),
     };
   }
 
@@ -520,8 +538,8 @@ export class LogView {
       `<label class="full">${label}<span class="dt-row"><input data-f="${path}" type="datetime-local" step="1" value="${esc(String(get(l, path) ?? ''))}"><button type="button" class="small" data-log="now" data-target="${path}">Now</button></span></label>`;
     const sel = (path: string, label: string, opts: string[]) =>
       `<label class="full">${label}<select data-f="${path}">${['', ...opts].map((o) => `<option${get(l, path) === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select></label>`;
-    const plan = this.ctx.plan;
-    const dateWarn = l.date !== this.ctx.date ? `<p class="warn">This log is for ${l.date}; the date selector shows ${this.ctx.date}. Band times below are for ${this.ctx.date}. Switch the date to ${l.date} to see the correct bands.</p>` : '';
+    const plan = this.planFor(l);
+    const dateWarn = l.date !== this.ctx.date ? `<p class="note">This log is for ${esc(fmtShortDate(l.date))}; the date selector shows ${fmtShortDate(this.ctx.date)}. Plan times, bands and exports below use the log’s night.</p>` : '';
     return `<div class="btn-row" style="margin:0 0 12px"><button data-log="back">‹ All logs</button><span class="sec" id="log-status" role="status">${esc(this.status)}</span></div>
     ${dateWarn}
     <section class="card"><h2>Night &amp; site · ${fmtShortDate(l.date)}</h2>
@@ -556,7 +574,7 @@ export class LogView {
         <label class="full">These times were read from
           <select data-f="timeSource"><option value="camera"${l.timeSource === 'camera' ? ' selected' : ''}>Camera clock (EXIF of first/last frame)</option><option value="true"${l.timeSource === 'true' ? ' selected' : ''}>True time (phone / time.is)</option></select></label>
       </div>
-      <p class="note">Plan: start ${plan.window ? fmtHMS(plan.window.start) : '—'}, end ${plan.window ? fmtHMS(plan.window.end) : '—'} KST.</p>
+      <p class="note">Plan: start ${plan?.window ? fmtHMS(plan.window.start) : '—'}, end ${plan?.window ? fmtHMS(plan.window.end) : '—'} KST.</p>
     </section>
     <section class="card"><h2>Camera clock check (time.is)</h2>
       <p class="note"><b>How to take the time.is photos:</b> use a <b>fast shutter speed (e.g. 1/100 s)</b> so the digits are sharp. Take <b>5–10 shots before and 5–10 after</b>, a few seconds apart, without changing the camera time settings. EXIF DateTimeOriginal has whole-second resolution (CIPA DC-008), and time.is shows whole seconds, so one reading is only good to about ±1 s. Readings taken at different fractions of a second average to a much better estimate. If your files contain <code>SubSecTimeOriginal</code> (check with <code>exiftool -time:all</code>), enter the EXIF time to the second and note the fraction in Notes.</p>
@@ -605,7 +623,7 @@ export class LogView {
     const keepExif = this.el!.querySelector<HTMLInputElement>('#conv-exif')?.value ?? '';
     const keepFrame = this.el!.querySelector<HTMLInputElement>('#conv-frame')?.value ?? '';
     const d = this.derived();
-    const plan = this.ctx.plan;
+    const plan = d.plan;
     const s = (x: number | null, u = 's') => (x === null ? '—' : `${x > 0 ? '+' : ''}${x.toFixed(1)} ${u}`);
     const clockTxt =
       d.clock.before === null && d.clock.after === null
@@ -615,7 +633,7 @@ export class LogView {
     const intWarn = d.eff !== null && Math.abs(d.eff - d.interval) > 0.05 ? `<p class="warn">Effective interval ${d.eff.toFixed(3)} s differs from the ${d.interval} s setting. Check the frame count and the end time; frame numbers below assume ${d.interval} s.</p>` : '';
     const bandRows = d.bands
       .map((b) => {
-        const sched = plan.timeline.filter((i) => i.kind === 'band' && i.label.startsWith(b.key === 'twilight' ? 'Twilight' : 'Dark')).map((i) => i.frame ?? '—');
+        const sched = (plan?.timeline ?? []).filter((i) => i.kind === 'band' && i.label.startsWith(b.key === 'twilight' ? 'Twilight' : 'Dark')).map((i) => i.frame ?? '—');
         return `<tr class="${b.key}"><td>${BAND_NAME[b.key]}</td><td class="tnum">${b.start ? fmtHMS(new Date(b.start)) : '—'}–${b.end ? fmtHMS(new Date(b.end)) : '—'}</td>
           <td class="r tnum"><b>${b.firstFrame ?? '—'}–${b.lastFrame ?? '—'}</b></td><td class="r tnum sec">${sched.join('–')}</td></tr>`;
       })
@@ -649,6 +667,6 @@ export class LogView {
       </dl>
       ${driftWarn}${intWarn}
       ${d.start !== null ? `<table style="margin-top:10px"><thead><tr><th>Band</th><th>Sun-angle times (KST)</th><th class="r">Frames (actual)</th><th class="r">Planned</th></tr></thead><tbody>${bandRows}</tbody></table>
-      <p class="note">Frames whose exposure starts inside the band, from the true start and the ${d.interval}-s interval. "Planned" assumed the scheduled start (${plan.window ? fmtHM(plan.window.start) : '—'}).</p>` : ''}`;
+      <p class="note">Frames whose exposure starts inside the band, from the true start and the ${d.interval}-s interval. "Planned" assumed the scheduled start (${plan?.window ? fmtHM(plan.window.start) : '—'}).</p>` : ''}`;
   }
 }
