@@ -15,11 +15,15 @@
  * start or end, and we found no Sony documentation for the a7 III on either point — see README for the tests.
  *
  * Frames. With true start time T₀ and interval Δ (the camera's interval setting), frame n starts at
- * T₀ + (n − 1)·Δ. A moment t falls in frame ⌊(t − T₀)/Δ⌋ + 1 (exposure 15 s, then a 1-s gap). If the actual end
+ * T₀ + (n − 1)·Δ. A moment t falls in frame ⌊(t − T₀)/Δ⌋ + 1 (exposure 15 s, then a 1-s gap). A frame belongs
+ * to a band if the Sun's altitude at its mid-exposure T₀ + (n − 1)·Δ + E/2 is inside the band (src/astro/frames.ts,
+ * the same rule as the night plan, the converter and the ISS check). If the actual end
  * time is logged too, the effective interval (end − start)/(shots − 1) is reported, so drift of the camera's
  * intervalometer can be detected. Frame-level band sorting should ideally use each photo's EXIF time through
  * `toTrueTime`; frame numbers are the fallback when per-frame EXIF times are not at hand.
  */
+
+import { bandFrameRange, FRAME_BAND_RULE } from '../astro/frames';
 
 /**
  * v2: clockBefore/clockAfter hold several readings each (v1 had one).
@@ -241,31 +245,27 @@ export interface BandFrames {
   /** True times of the band edges (Sun at the two altitudes). */
   start: number | null;
   end: number | null;
-  /** First/last frame whose exposure starts inside the band (null if outside the run). */
+  /** First/last frame whose mid-exposure lies inside the band (null if none in the run). */
   firstFrame: number | null;
   lastFrame: number | null;
 }
 
 /**
- * Frames whose exposure START lies inside each band [t_from, t_to). Band times come from the night plan
- * (Sun altitude crossings); frames from the actual start and the interval.
+ * Frames in each band by the mid-exposure rule (src/astro/frames.ts): the Sun's altitude at frame start +
+ * exposure/2 is inside the band. Band times come from the night plan; frames from the actual start and interval.
  */
 export function bandFrames(
   trueStart: number,
   intervalS: number,
+  exposureS: number,
   shots: number | null,
   bands: { key: 'twilight' | 'dark'; start: Date | null; end: Date | null }[],
 ): BandFrames[] {
-  const dt = intervalS * 1000;
-  const last = shots ?? Infinity;
   return bands.map((b) => {
     const s = b.start?.getTime() ?? null;
     const e = b.end?.getTime() ?? null;
-    if (s === null || e === null) return { key: b.key, start: s, end: e, firstFrame: null, lastFrame: null };
-    let first = Math.max(1, Math.ceil((s - trueStart) / dt) + 1);
-    let lastF = Math.min(last, Math.ceil((e - trueStart) / dt)); // frames starting before e
-    if (first > lastF) first = lastF = NaN;
-    return { key: b.key, start: s, end: e, firstFrame: Number.isNaN(first) ? null : first, lastFrame: Number.isNaN(lastF) ? null : lastF };
+    const r = bandFrameRange(trueStart, intervalS, exposureS, shots, s, e);
+    return { key: b.key, start: s, end: e, firstFrame: r?.first ?? null, lastFrame: r?.last ?? null };
   });
 }
 
@@ -276,7 +276,7 @@ const csvCell = (v: unknown) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-/** One-row CSV (header + values) of the log plus derived timing fields. */
+/** One-row CSV of the log plus derived timing fields: a '#' comment line stating the band rule, header, values. */
 export function logToCsv(log: FieldLog, derived: Record<string, string | number | null>): string {
   const flat: Record<string, unknown> = {
     id: log.id,
@@ -310,5 +310,6 @@ export function logToCsv(log: FieldLog, derived: Record<string, string | number 
     ...derived,
     updated_at_utc: new Date(log.updatedAt).toISOString(),
   };
-  return Object.keys(flat).map(csvCell).join(',') + '\n' + Object.values(flat).map(csvCell).join(',') + '\n';
+  const note = `# Sat-Streak Planner field log. Times KST (UTC+9). Band frames: ${FRAME_BAND_RULE}`;
+  return note + '\n' + Object.keys(flat).map(csvCell).join(',') + '\n' + Object.values(flat).map(csvCell).join(',') + '\n';
 }

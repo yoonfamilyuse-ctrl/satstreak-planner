@@ -3,11 +3,13 @@ import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearDb, ctxFor, fire, sleep, typeInto, until } from './helpers/dom';
 
+/** Test worker: rejects by default; a test can set `worker.impl` to answer requests. */
+const worker = vi.hoisted(() => ({ impl: null as null | ((req: any) => any) }));
 vi.mock('../src/sat/client', () => ({
   SatWorker: class {
     loaded: string | null = null;
-    call() {
-      return Promise.reject(new Error('no worker in tests'));
+    call(req: any) {
+      return worker.impl ? Promise.resolve(worker.impl(req)) : Promise.reject(new Error('no worker in tests'));
     }
   },
 }));
@@ -44,6 +46,7 @@ beforeEach(async () => {
   Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { getCurrentPosition: vi.fn() } });
 });
 afterEach(() => {
+  worker.impl = null;
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -145,7 +148,11 @@ describe('Log tab: delete', () => {
 });
 
 /** Parse a header + one-row CSV (RFC 4180 quoting) into an object. */
-function csvRow(text: string): Record<string, string> {
+function csvRow(csv: string): Record<string, string> {
+  const text = csv
+    .split('\n')
+    .filter((l) => !l.startsWith('#'))
+    .join('\n');
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = '';
@@ -197,7 +204,7 @@ describe('Log tab: export uses the log’s own night', () => {
     expect(row.sun_minus12_kst).toBe(formatKst(own.sun.descending[-12]!.getTime()));
     expect(row.sun_minus35_kst).toBe(formatKst(own.sun.descending[-35]!.getTime()));
     const t0 = parseKst(start)!; // whole seconds, as entered
-    const expected = bandFrames(t0, 16, own.window!.shots, own.bands);
+    const expected = bandFrames(t0, 16, 15, own.window!.shots, own.bands);
     expect(row.twilight_first_frame).toBe(String(expected[0].firstFrame));
     expect(row.dark_last_frame).toBe(String(expected[1].lastFrame));
     expect(row.start_offset_from_plan_s).toBe(String(+((t0 - own.window!.start.getTime()) / 1000).toFixed(1)));
@@ -248,5 +255,57 @@ describe('Log tab: frame → band converter', () => {
     const wrong = sunAltitude(new Date(fs + 7_500), DEFAULT_SITE).toFixed(2);
     expect(mid).not.toBe(wrong); // the test can tell the two apart
     expect(text).toContain(`Sun ${mid}° at mid-exposure`);
+  });
+});
+
+describe('Log tab: mid-exposure band rule', () => {
+  it('an on-plan start shows identical Actual and Planned band frames', async () => {
+    const { formatKst } = await import('../src/log/fieldlog');
+    const { el, ctx } = mount();
+    await newLog(el);
+    typeInto(q<HTMLInputElement>(el, '[data-f="start"]')!, formatKst(ctx.plan.window!.start.getTime()));
+    const rows = [...el.querySelectorAll('#log-derived tbody tr')].map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent!.trim()));
+    expect(rows).toHaveLength(2);
+    for (const r of rows) expect(r[2], r[0]).toBe(r[3]);
+    expect(rows[0][2]).toBe('20–172');
+  });
+
+  it('the EXIF converter classifies a photo by its mid-exposure', async () => {
+    const { formatKst } = await import('../src/log/fieldlog');
+    const { el, ctx } = mount();
+    await newLog(el);
+    typeInto(q<HTMLInputElement>(el, '[data-f="start"]')!, formatKst(ctx.plan.window!.start.getTime()));
+    // EXIF time 5 s before the Sun reaches −12°: the moment is outside, but mid-exposure (+7.5 s) is in twilight.
+    typeInto(q<HTMLInputElement>(el, '#conv-exif')!, formatKst(ctx.plan.sun.descending[-12]!.getTime() - 5000));
+    expect(q(el, '#log-conv')!.textContent).toContain('at mid-exposure · Twilight band');
+  });
+
+  it('the ISS check gives each frame its band by mid-exposure, for both EXIF conventions', async () => {
+    const { formatKst } = await import('../src/log/fieldlog');
+    const TEXT = '[]';
+    await store.putSet({ id: 'set1', source: 'file', label: 'set1.json', downloadedAt: Date.now(), format: 'omm-json', bytes: 2, loaded: 0, failed: 0, sixDigit: 0, epochMin: null, epochMax: null, failures: [] }, TEXT);
+    await store.lockNightSet(DATE, 'set1');
+    // The ISS is in the frame (S, 60°) and sunlit at every requested time.
+    worker.impl = (req) => (req.type === 'track' ? { epoch: 0, points: req.times.map((t: number) => ({ t, az: 180, alt: 60, sunlit: true })) } : {});
+    const { el, ctx } = mount();
+    await newLog(el);
+    await until(() => !q(el, '[data-log="lock-latest"]'), 3000, 'element set picked up from the night lock');
+    const t12 = ctx.plan.sun.descending[-12]!.getTime();
+    typeInto(q<HTMLInputElement>(el, '[data-f="start"]')!, formatKst(t12 - 20_000)); // ≈ 20.3 s before −12°
+    typeInto(q<HTMLInputElement>(el, '[data-f="camera.azimuth"]')!, '180');
+    typeInto(q<HTMLInputElement>(el, '[data-f="camera.altitude"]')!, '60');
+    typeInto(q<HTMLInputElement>(el, '[data-f="camera.shotsTaken"]')!, '3');
+    fire(q(el, '[data-log="iss-check"]')!, 'click');
+    await until(() => q(el, '#log-iss tbody'), 3000, 'ISS table');
+    const rows = [...el.querySelectorAll('#log-iss tbody tr')].map((tr) => [...tr.querySelectorAll('td')].slice(0, 3).map((td) => td.textContent!.trim()).join(' '));
+    // A: frame n mid = T0 + (n−1)·16 + 7.5 s → −12.8, +3.2, +19.2 s from −12°. B: 15 s earlier.
+    expect(rows).toEqual([
+      'A 1 Outside bands',
+      'A 2 Twilight band',
+      'A 3 Twilight band',
+      'B 1 Outside bands',
+      'B 2 Outside bands',
+      'B 3 Twilight band',
+    ]);
   });
 });

@@ -102,22 +102,67 @@ describe('frame numbers from the ACTUAL start (Stage 4 requirement)', () => {
     expect(effectiveInterval(start, end, 465)).toBeCloseTo(16.0, 2);
 
     const t12 = plan.sun.descending[-12]!.getTime(); // 18:19:00.3 KST
-    // (18:19:00.3 − 18:17:00) = 120.3 s → frame 8 (frames start every 16 s: 112 s = frame 8 start).
+    // (18:19:00.3 − 18:17:00) = 120.3 s → frame 8 is being exposed (frames start every 16 s: 112 s = frame 8 start).
     expect(frameAtTime(start!, 16, t12)).toBe(8);
-    // The scheduled plan said frame 19 for the same moment (start 18:14:00). The difference is the late start.
+    // On plan (start 18:14:00.3) the twilight band would begin at frame 20. The difference is the late start.
     const scheduled = plan.timeline.find((i) => i.label.startsWith('Twilight band begins'))!.frame;
-    expect(scheduled).toBe(19);
+    expect(scheduled).toBe(20);
 
-    const bf = bandFrames(start!, 16, 465, plan.bands);
+    const bf = bandFrames(start!, 16, 15, 465, plan.bands);
     const tw = bf.find((b) => b.key === 'twilight')!;
     const dk = bf.find((b) => b.key === 'dark')!;
-    // First frame starting at/after the −12° moment, last frame starting before the −20° moment.
-    expect(frameStart(start!, 16, tw.firstFrame!)).toBeGreaterThanOrEqual(t12);
-    expect(frameStart(start!, 16, tw.firstFrame! - 1)).toBeLessThan(t12);
-    expect(frameStart(start!, 16, tw.lastFrame!)).toBeLessThan(plan.sun.descending[-20]!.getTime());
-    expect(frameStart(start!, 16, tw.lastFrame! + 1)).toBeGreaterThanOrEqual(plan.sun.descending[-20]!.getTime());
+    // Mid-exposure rule: first frame whose mid-exposure (start + 7.5 s) is at/after −12°, last one at/before −20°.
+    const mid = (n: number) => frameStart(start!, 16, n) + 7500;
+    const t20 = plan.sun.descending[-20]!.getTime();
+    expect(mid(tw.firstFrame!)).toBeGreaterThanOrEqual(t12);
+    expect(mid(tw.firstFrame! - 1)).toBeLessThan(t12);
+    expect(mid(tw.lastFrame!)).toBeLessThanOrEqual(t20);
+    expect(mid(tw.lastFrame! + 1)).toBeGreaterThan(t20);
     expect(dk.firstFrame!).toBeGreaterThan(tw.lastFrame!);
     expect(dk.lastFrame!).toBeLessThanOrEqual(465);
+    // README example: 3 min late with the camera 7 s fast.
+    expect([tw.firstFrame, tw.lastFrame, dk.firstFrame, dk.lastFrame]).toEqual([9, 161, 257, 445]);
+  });
+
+  it('an on-plan start gives identical Planned and Actual band frames (mid-exposure rule)', () => {
+    const w = plan.window!;
+    const actual = bandFrames(w.start.getTime(), 16, 15, w.shots, plan.bands);
+    for (const b of plan.bands) {
+      const a = actual.find((x) => x.key === b.key)!;
+      expect([a.firstFrame, a.lastFrame], b.key).toEqual([b.plannedFirst, b.plannedLast]);
+      expect(b.frames).toBe(b.plannedLast! - b.plannedFirst! + 1);
+    }
+    // Frame 173 starts 18:59:52.3; its mid-exposure 18:59:59.8 is after −20° (18:59:57.x), so it is in the gap.
+    expect([plan.bands[0].plannedFirst, plan.bands[0].plannedLast]).toEqual([20, 172]);
+    expect([plan.bands[1].plannedFirst, plan.bands[1].plannedLast]).toEqual([268, 456]);
+    // The timeline's band rows show the same frames.
+    const tl = (label: string) => plan.timeline.find((i) => i.label.startsWith(label))!.frame;
+    expect([tl('Twilight band begins'), tl('Twilight band ends'), tl('Dark band begins'), tl('Dark band ends')]).toEqual([
+      plan.bands[0].plannedFirst,
+      plan.bands[0].plannedLast,
+      plan.bands[1].plannedFirst,
+      plan.bands[1].plannedLast,
+    ]);
+  });
+
+  it('every frame is in the band that contains its mid-exposure Sun altitude', async () => {
+    const { sunAltitude } = await import('../src/astro/sun');
+    const { bandOf } = await import('../src/sat/predict');
+    const { bandAtTime, midExposure } = await import('../src/astro/frames');
+    // A late start with a non-default exposure/interval, so frames do not line up with the plan.
+    const t0 = plan.window!.start.getTime() + 187_000;
+    for (const [interval, exposure] of [[16, 15], [31, 30], [9, 8]] as const) {
+      const shots = Math.floor((plan.window!.end.getTime() - t0) / 1000 / interval);
+      const bf = bandFrames(t0, interval, exposure, shots, plan.bands);
+      for (let n = 1; n <= shots; n++) {
+        const m = midExposure(t0, interval, exposure, n);
+        const byAlt = bandOf(sunAltitude(new Date(m), DEFAULT_SITE));
+        const byRange = bf.find((b) => b.firstFrame !== null && n >= b.firstFrame && n <= b.lastFrame!)?.key ?? null;
+        expect(bandAtTime(m, plan.bands), `frame ${n}, ${exposure}/${interval} s`).toBe(byAlt);
+        if (byAlt === 'twilight' || byAlt === 'dark') expect(byRange, `frame ${n}`).toBe(byAlt);
+        else expect(byRange, `frame ${n}`).toBeNull();
+      }
+    }
   });
 
   it('times read from a true clock are not corrected', () => {
@@ -151,7 +196,7 @@ describe('frame numbers from the ACTUAL start (Stage 4 requirement)', () => {
 
   it('writes one time-source column per time to the CSV', () => {
     const log = { ...newLog('2026-11-11'), timeSource: { start: 'phone' as const, end: 'camera' as const } };
-    const [head, row] = logToCsv(log, {}).trim().split('\n').map((l) => l.split(','));
+    const [head, row] = logToCsv(log, {}).trim().split('\n').filter((l) => !l.startsWith('#')).map((l) => l.split(','));
     const col = (k: string) => row[head.indexOf(k)];
     expect(col('start_time_source')).toBe('phone');
     expect(col('end_time_source')).toBe('camera');
@@ -170,9 +215,11 @@ describe('export', () => {
   it('CSV has one header row and one value row with derived fields', () => {
     const csv = logToCsv({ ...newLog('2026-11-11'), notes: 'plane at 18:40, "bright"' }, { true_start_kst: '2026-11-11T18:17:00' });
     const lines = csv.trim().split('\n');
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toContain('true_start_kst');
-    expect(lines[1]).toContain('"plane at 18:40, ""bright"""');
+    expect(lines).toHaveLength(3);
+    // The comment line states the band rule (read with e.g. pandas.read_csv(..., comment='#')).
+    expect(lines[0]).toMatch(/^# .*frame start \+ exposure\/2/);
+    expect(lines[1]).toContain('true_start_kst');
+    expect(lines[2]).toContain('"plane at 18:40, ""bright"""');
   });
 
   it('CRC-32 of "123456789" is CBF43926', () => {

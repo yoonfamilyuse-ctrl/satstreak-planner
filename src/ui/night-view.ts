@@ -22,7 +22,7 @@ function windowCard(p: NightPlan, cloud: CloudAverage | null | undefined): strin
   const bands = p.bands
     .map(
       (b) => `<div class="band ${b.key}"><span><b>${esc(b.label)}</b> ${b.from}° → ${b.to}°</span>
-        <span class="tnum">${fmtHM(b.start, d)}–${fmtHM(b.end, d)} · ${b.start && b.end ? fmtDuration(b.end.getTime() - b.start.getTime()) : '—'} · ≈${b.frames ?? '—'} frames</span></div>`,
+        <span class="tnum">${fmtHM(b.start, d)}–${fmtHM(b.end, d)} · ${b.start && b.end ? fmtDuration(b.end.getTime() - b.start.getTime()) : '—'} · ${b.frames ?? '—'} frames${b.plannedFirst ? ` (${b.plannedFirst}–${b.plannedLast})` : ''}</span></div>`,
     )
     .join('');
   return `<section class="card">
@@ -51,7 +51,7 @@ function timelineCard(p: NightPlan): string {
     .join('');
   return `<section class="card"><h2>Field timeline</h2>
     <table><thead><tr><th>KST</th><th>Step</th><th class="r">Frame #</th></tr></thead><tbody>${rows}</tbody></table>
-    <p class="note">Frame # is the frame being exposed at that moment if shooting starts exactly on time. Use the time.is photos to correct for the camera clock.</p>
+    <p class="note">Frame # (if shooting starts exactly on time): for tasks, the frame being exposed at that moment; for band rows, the band’s first or last frame. A frame belongs to a band if the Sun’s altitude at its mid-exposure (frame start + exposure/2) is inside the band. Use the time.is photos to correct for the camera clock.</p>
   </section>`;
 }
 

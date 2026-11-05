@@ -1,7 +1,7 @@
-import type { Site } from '../config';
+import { CAMERA, type Site } from '../config';
 import { computeNight, type NightPlan } from '../astro/schedule';
 import { sunAltitude } from '../astro/sun';
-import { bandOf } from '../sat/predict';
+import { bandAtTime, FRAME_BAND_RULE, midExposure } from '../astro/frames';
 import { ommArrayToTleText } from '../sat/elements';
 import { deleteLog, getLog, getNightSet, getSetMeta, getSetText, listLogs, listSets, lockNightSet, putLog, type SetMeta } from '../sat/store';
 import { loadCamera } from './sat-view';
@@ -324,11 +324,12 @@ export class LogView {
     const clock = clockModel(log);
     const { start, end, corrected, startCorrected, endCorrected } = trueStartEnd(log);
     const interval = log.camera.intervalS ?? 16;
+    const exposure = log.camera.exposureS ?? 15;
     const shots = log.camera.shotsTaken ?? log.camera.shotsPlanned;
     const eff = effectiveInterval(start, end, shots);
-    const bands = start !== null && plan ? bandFrames(start, interval, shots, plan.bands) : [];
+    const bands = start !== null && plan ? bandFrames(start, interval, exposure, shots, plan.bands) : [];
     const lateS = start !== null && plan?.window ? (start - plan.window.start.getTime()) / 1000 : null;
-    return { plan, clock, start, end, corrected, startCorrected, endCorrected, interval, shots, eff, bands, lateS };
+    return { plan, clock, start, end, corrected, startCorrected, endCorrected, interval, exposure, shots, eff, bands, lateS };
   }
 
   private derivedFlat(): Record<string, string | number | null> {
@@ -409,7 +410,8 @@ export class LogView {
     const exact = async (ts: number[]) =>
       (await this.worker!.call<{ points: { t: number; az: number; alt: number; sunlit: boolean }[] }>({ type: 'track', setId: log.elementSetId!, norad: 25544, times: ts, site })).points;
     const rows: string[] = [];
-    const csv: string[] = ['convention,frame,frame_start_true_kst,frame_end_true_kst,iss_az_start,iss_alt_start,iss_az_end,iss_alt_end,sunlit_start,sunlit_end'];
+    const csv: string[] = ['convention,frame,band,frame_start_true_kst,frame_end_true_kst,iss_az_start,iss_alt_start,iss_az_end,iss_alt_end,sunlit_start,sunlit_end'];
+    const bandsOfNight = d.plan?.bands ?? [];
     for (const conv of ['A', 'B'] as const) {
       const shift = conv === 'A' ? 0 : -exp * 1000;
       const frames: number[] = [];
@@ -426,16 +428,21 @@ export class LogView {
         const fs = d.start + (n - 1) * interval * 1000 + shift;
         const [a, b] = await exact([fs, fs + exp * 1000]);
         const pos = (p: typeof a) => `${p.az.toFixed(2)}° ${compass(p.az)}, ${p.alt.toFixed(2)}°${p.sunlit ? '' : ' (shadow)'}`;
-        rows.push(`<tr><td>${conv}</td><td class="r tnum">${n}</td><td class="tnum">${fmtHMS(new Date(fs))}</td><td class="tnum">${pos(a)}</td><td class="tnum">${pos(b)}</td></tr>`);
-        csv.push([conv, n, formatKst(fs), formatKst(fs + exp * 1000), a.az.toFixed(4), a.alt.toFixed(4), b.az.toFixed(4), b.alt.toFixed(4), a.sunlit, b.sunlit].join(','));
+        const band = bandAtTime(fs + exp * 500, bandsOfNight); // mid-exposure rule (frames.ts)
+        rows.push(`<tr><td>${conv}</td><td class="r tnum">${n}</td><td>${BAND_NAME[band]}</td><td class="tnum">${fmtHMS(new Date(fs))}</td><td class="tnum">${pos(a)}</td><td class="tnum">${pos(b)}</td></tr>`);
+        csv.push([conv, n, band, formatKst(fs), formatKst(fs + exp * 1000), a.az.toFixed(4), a.alt.toFixed(4), b.az.toFixed(4), b.alt.toFixed(4), a.sunlit, b.sunlit].join(','));
       }
     }
     const meta = this.setMeta;
     this.issCheck = {
-      csv: `# ISS predicted positions per frame, night ${log.date}; A: EXIF = exposure start, B: EXIF = exposure end; elements ${meta?.label ?? log.elementSetId} (ISS epoch ${new Date(r.epoch).toISOString()})\n` + csv.join('\n') + '\n',
+      csv:
+        `# ISS predicted positions per frame, night ${log.date}; A: EXIF = exposure start, B: EXIF = exposure end; elements ${meta?.label ?? log.elementSetId} (ISS epoch ${new Date(r.epoch).toISOString()})\n` +
+        `# band: ${FRAME_BAND_RULE}\n` +
+        csv.join('\n') +
+        '\n',
       html: rows.length
-        ? `<div class="scroll-x"><table><thead><tr><th>Conv.</th><th class="r">Frame</th><th>Exposure start (true)</th><th>ISS at start (az, alt)</th><th>ISS at end</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
-           <p class="note">A = EXIF marks the exposure start; B = EXIF marks the end (true start ${exp} s earlier). The ISS moves ≈ 1°/s here, so 1 s of timing error ≈ 1° along the track. ISS element epoch ${fmtDateTime(r.epoch)} KST.</p>
+        ? `<div class="scroll-x"><table><thead><tr><th>Conv.</th><th class="r">Frame</th><th>Band</th><th>Exposure start (true)</th><th>ISS at start (az, alt)</th><th>ISS at end</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
+           <p class="note">A = EXIF marks the exposure start; B = EXIF marks the end (true start ${exp} s earlier). The ISS moves ≈ 1°/s here, so 1 s of timing error ≈ 1° along the track. Band: Sun at mid-exposure (frame start + ${exp / 2} s). ISS element epoch ${fmtDateTime(r.epoch)} KST.</p>
            <div class="btn-row"><button type="button" class="small" data-log="iss-csv">Download ISS timing CSV</button></div>`
         : '<p class="note">The ISS does not enter this frame during the logged run (check pointing, start time and frame count).</p>',
     };
@@ -460,7 +467,7 @@ export class LogView {
         log,
         derived,
         elementSet: this.setMeta,
-        notes: 'Clock offset = camera − true (s). True time = camera time − offset (linear between checks). Frame n starts at true_start + (n−1)·interval.',
+        notes: `Clock offset = camera − true (s). True time = camera time − offset (linear between checks). Frame n starts at true_start + (n−1)·interval. Band frames: ${FRAME_BAND_RULE}`,
       },
       null,
       2,
@@ -494,6 +501,7 @@ export class LogView {
       data: [
         `Field log export for the night of ${log.date} (Sat-Streak Planner).`,
         `${base}.csv / .json: the log, the measured camera clock offset and the derived timing (true start/end, frame numbers of the solar bands).`,
+        `Band frames: ${FRAME_BAND_RULE}`,
         elementsNote,
         'Recompute predictions for this night with these elements, not newer ones: newer elements give different positions.',
         'Times are KST (UTC+9) unless the field name says utc.',
@@ -637,7 +645,8 @@ export class LogView {
     const intWarn = d.eff !== null && Math.abs(d.eff - d.interval) > 0.05 ? `<p class="warn">Effective interval ${d.eff.toFixed(3)} s differs from the ${d.interval} s setting. Check the frame count and the end time; frame numbers below assume ${d.interval} s.</p>` : '';
     const bandRows = d.bands
       .map((b) => {
-        const sched = (plan?.timeline ?? []).filter((i) => i.kind === 'band' && i.label.startsWith(b.key === 'twilight' ? 'Twilight' : 'Dark')).map((i) => i.frame ?? '—');
+        const p = plan?.bands.find((x) => x.key === b.key);
+        const sched = p?.plannedFirst ? [p.plannedFirst, p.plannedLast] : ['—'];
         return `<tr class="${b.key}"><td>${BAND_NAME[b.key]}</td><td class="tnum">${b.start ? fmtHMS(new Date(b.start)) : '—'}–${b.end ? fmtHMS(new Date(b.end)) : '—'}</td>
           <td class="r tnum"><b>${b.firstFrame ?? '—'}–${b.lastFrame ?? '—'}</b></td><td class="r tnum sec">${sched.join('–')}</td></tr>`;
       })
@@ -649,21 +658,23 @@ export class LogView {
       if (camT !== null) {
         const tt = toTrueTime(this.current, camT);
         const fr = frameAtTime(d.start, d.interval, tt, d.shots);
-        const sa = sunAltitude(new Date(tt), this.ctx.site);
-        conv += `<p class="tnum">True ${fmtHMS(new Date(tt))} · frame ${fr ?? 'outside run'} · Sun ${sa.toFixed(2)}° · <b>${BAND_NAME[bandOf(sa)]}</b></p>`;
+        // The EXIF time is read like the logged start (as the exposure start), so mid-exposure = tt + E/2.
+        const mid = tt + d.exposure * 500;
+        const sa = sunAltitude(new Date(mid), this.ctx.site);
+        conv += `<p class="tnum">True ${fmtHMS(new Date(tt))} · frame ${fr ?? 'outside run'} · Sun ${sa.toFixed(2)}° at mid-exposure · <b>${BAND_NAME[bandAtTime(mid, plan?.bands ?? [])]}</b></p>`;
       }
       const n = Number(keepFrame);
       if (keepFrame && Number.isInteger(n) && n >= 1) {
         const tt = frameStart(d.start, d.interval, n);
-        const exp = this.current.camera.exposureS ?? 15; // logged exposure (s); 15 s if not entered
-        const sa = sunAltitude(new Date(tt + exp * 500), this.ctx.site); // mid-exposure = start + exp/2
-        conv += `<p class="tnum">Frame ${n}: starts ${fmtHMS(new Date(tt))} true · Sun ${sa.toFixed(2)}° at mid-exposure · <b>${BAND_NAME[bandOf(sa)]}</b></p>`;
+        const mid = midExposure(d.start, d.interval, d.exposure, n); // logged exposure (15 s if not entered)
+        const sa = sunAltitude(new Date(mid), this.ctx.site);
+        conv += `<p class="tnum">Frame ${n}: starts ${fmtHMS(new Date(tt))} true · Sun ${sa.toFixed(2)}° at mid-exposure · <b>${BAND_NAME[bandAtTime(mid, plan?.bands ?? [])]}</b></p>`;
       }
     }
     const issBox = this.el!.querySelector<HTMLElement>('#log-iss');
     if (issBox) issBox.innerHTML = this.issCheck?.html ?? '';
     const convBox = this.el!.querySelector<HTMLElement>('#log-conv');
-    if (convBox) convBox.innerHTML = conv || '<p class="note">EXIF times are the most accurate way to sort a frame: they are corrected by the clock offset, then classified by the Sun’s altitude.</p>';
+    if (convBox) convBox.innerHTML = conv || '<p class="note">EXIF times are the most accurate way to sort a frame: they are corrected by the clock offset, then classified by the Sun’s altitude at mid-exposure (EXIF time + exposure/2, reading the EXIF time as the exposure start, as for the logged start).</p>';
     box.innerHTML = `<dl class="kv">
         <dt>Clock offset</dt><dd class="tnum">${clockTxt}</dd>
         <dt>True start</dt><dd class="tnum">${d.start !== null ? `<b>${fmtHMS(new Date(d.start))}</b>${d.startCorrected ? ' (corrected)' : ''}${d.lateS !== null ? ` · ${d.lateS >= 0 ? `${(d.lateS / 60).toFixed(1)} min after` : `${(-d.lateS / 60).toFixed(1)} min before`} the planned start` : ''}` : 'enter the start time'}</dd>
@@ -672,6 +683,6 @@ export class LogView {
       </dl>
       ${driftWarn}${intWarn}
       ${d.start !== null ? `<table style="margin-top:10px"><thead><tr><th>Band</th><th>Sun-angle times (KST)</th><th class="r">Frames (actual)</th><th class="r">Planned</th></tr></thead><tbody>${bandRows}</tbody></table>
-      <p class="note">Frames whose exposure starts inside the band, from the true start and the ${d.interval}-s interval. "Planned" assumed the scheduled start (${plan?.window ? fmtHM(plan.window.start) : '—'}).</p>` : ''}`;
+      <p class="note">A frame belongs to a band if the Sun’s altitude at its mid-exposure (frame start + ${d.exposure / 2} s) is inside the band; frames from the true start and the ${d.interval}-s interval. "Planned" assumes the scheduled start (${plan?.window ? fmtHM(plan.window.start) : '—'}) with the planned ${CAMERA.exposureS}-s exposure and ${CAMERA.intervalS}-s interval.</p>` : ''}`;
   }
 }
