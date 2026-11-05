@@ -51,4 +51,8 @@ describe('iOS Safari: native feel', () => {
       expect(body, sel).toMatch(/flex:\s*none/);
     }
   });
+
+  it('the 14-night rating never wraps ("No window", break-ui #5)', () => {
+    expect(rules.find(([s]) => s === '.ol-cloud .ol-rating')?.[1]).toMatch(/white-space:\s*nowrap/);
+  });
 });

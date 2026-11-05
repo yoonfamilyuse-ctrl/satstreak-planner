@@ -498,7 +498,7 @@ html { color: var(--ink); }
 .ol-cloud { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
 .ol-cloud b { font-size: 24px; font-weight: 750; letter-spacing: -0.02em; }
 .ol-cloud > span { font-size: 12px; color: var(--muted); }
-.ol-cloud .ol-rating { margin-top: 4px; font-weight: 700; color: var(--ink); }
+.ol-cloud .ol-rating { margin-top: 4px; font-weight: 700; color: var(--ink); white-space: nowrap; }
 .ol-cloud-detail { display: block; margin: -4px 0 8px 64px; font-size: 12px; color: var(--muted); }
 /* Good nights are circled in grease pencil, as on a proof sheet. */
 .ol-night.r-good { border-bottom-color: transparent; }
