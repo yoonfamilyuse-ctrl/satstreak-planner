@@ -51,6 +51,15 @@
 }
 :root[data-theme='night'] * { accent-color: #b00000; }
 :root[data-theme='night'] ::selection { background: #400000; color: #ff3030; }
+/* Native parts that ignore the colour tokens: the date/time picker icon (light grey under color-scheme: dark),
+   the scrollbar and the textarea resize grip. Make them red or remove them so night mode emits no white or grey
+   light. The picker pop-up itself is drawn by the OS and cannot be styled. */
+:root[data-theme='night'] { scrollbar-color: #3a0000 #000; }
+:root[data-theme='night'] ::-webkit-calendar-picker-indicator {
+  color: transparent;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23b00000' stroke-width='1.5'%3E%3Crect x='2' y='3' width='12' height='11' rx='1.5'/%3E%3Cpath d='M2 6.5h12M5 1.5v3M11 1.5v3'/%3E%3C/svg%3E") center / 16px no-repeat;
+}
+:root[data-theme='night'] textarea { resize: none; }
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
