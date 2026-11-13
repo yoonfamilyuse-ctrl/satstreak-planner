@@ -69,3 +69,11 @@ export function evaluateNight(plan: NightPlan, fc: CloudForecast | null): Outloo
 export function outlook(startDate: string, site: Site, fc: CloudForecast | null, days = 14): OutlookNight[] {
   return Array.from({ length: days }, (_, i) => evaluateNight(computeNight(addDays(startDate, i), site), fc));
 }
+
+/**
+ * Nearest night to shoot, for the "Next good night" button: the first night rated good; if none, the first rated
+ * fair; otherwise null. Uses the same ratings as the outlook, so no new criteria.
+ */
+export function nextShootableNight(nights: OutlookNight[]): OutlookNight | null {
+  return nights.find((n) => n.rating === 'good') ?? nights.find((n) => n.rating === 'fair') ?? null;
+}

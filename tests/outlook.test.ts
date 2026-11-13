@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SITE } from '../src/config';
-import { classifyCloud, classifyMoon, outlook, rate } from '../src/outlook';
+import { classifyCloud, classifyMoon, nextShootableNight, outlook, rate } from '../src/outlook';
 import { cloudAverage, parseForecast, type CloudForecast } from '../src/weather/openmeteo';
 
 const H = 3_600_000;
@@ -72,5 +72,24 @@ describe('rating', () => {
     expect(full.moonClass).toBe('high');
     expect(full.moonIndex!).toBeGreaterThan(90);
     expect(o.every((n) => n.cloudClass === 'unknown')).toBe(true);
+  });
+});
+
+describe('nextShootableNight', () => {
+  const night = (rating: string, d: string) => ({ rating, plan: { dateStr: d } }) as any;
+  it('picks the first good night, even after earlier fair nights', () => {
+    expect(nextShootableNight([night('poor', 'a'), night('fair', 'b'), night('good', 'c'), night('good', 'd')])!.plan.dateStr).toBe('c');
+  });
+  it('falls back to the first fair night when there is no good night', () => {
+    expect(nextShootableNight([night('none', 'a'), night('fair', 'b'), night('fair', 'c')])!.plan.dateStr).toBe('b');
+  });
+  it('returns null when every night is poor or has no window', () => {
+    expect(nextShootableNight([night('poor', 'a'), night('none', 'b')])).toBeNull();
+  });
+  it('with no forecast, a dark-Moon night can only be fair, so it still finds one', () => {
+    const nights = outlook('2026-11-11', DEFAULT_SITE, null, 30);
+    const hit = nextShootableNight(nights);
+    expect(hit?.rating).toBe('fair');
+    expect(hit?.moonClass).not.toBe('high');
   });
 });

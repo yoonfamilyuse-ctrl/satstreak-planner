@@ -60,6 +60,7 @@ For today and the next 13 evenings: shooting window, number of shots, Moon illum
 - **Cloud cover**: Open-Meteo hourly `cloud_cover`, `cloud_cover_low`, `cloud_cover_mid`, `cloud_cover_high` (%). The hourly values are linearly interpolated, sampled every 10 min across the window (both ends included) and averaged. If any sample falls outside the forecast range (16 days) or on missing data, the night shows "no forecast". A forecast is cached on the device for 1 h; "Refresh" forces a new download.
 - **Moon index** = illuminated % × (minutes the Moon's centre is above the horizon ÷ window minutes). 0 = no Moon, 100 = full Moon all window. ≤ 5 → no Moon, ≤ 20 → low, otherwise bright.
 - **Rating**: *Good* = no/low Moon and mean total cloud ≤ 30%. *Fair* = no/low Moon with 30–60% cloud or no forecast, or ≤ 30% cloud with a bright Moon. *Poor* = everything else. Good nights are highlighted. Thresholds are in `src/outlook.ts` (`CRITERIA`).
+- **Next good night** (button under the date): jumps to the nearest night, from tonight over the next 14, rated *Good*; if there is none, the nearest *Fair* night. Without a cloud forecast no night can be *Good*, so it then checks the Moon only and says so. Same ratings as the outlook (`nextShootableNight` in `src/outlook.ts`).
 
 ## What Stage 3 computes (satellites)
 

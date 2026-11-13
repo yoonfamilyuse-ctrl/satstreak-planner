@@ -1,10 +1,10 @@
 import './style.css';
 import { DEFAULT_SITE, type Site } from './config';
 import { computeNight } from './astro/schedule';
-import { outlook } from './outlook';
+import { nextShootableNight, outlook } from './outlook';
 import { loadSite, resetSite, saveSite, validateSite } from './site';
 import { addDays, isValidDateString, todayKST } from './time';
-import { getLang, longDate, S, setLang } from './i18n';
+import { getLang, longDate, S, setLang, shortDate } from './i18n';
 import { cachedForecast, cloudAverage, fetchForecast, type CloudForecast } from './weather/openmeteo';
 import { NightView } from './ui/night-view';
 import { renderOutlook, type ForecastStatus } from './ui/outlook-view';
@@ -58,6 +58,10 @@ app.innerHTML = `
           <button type="button" class="icon-btn" data-day="1" data-t-aria="nextNight">${CHEVRON_RIGHT}</button>
           <button type="button" id="today" class="pill-btn" data-t="tonight"></button>
         </div>
+        <div class="find-row">
+          <button type="button" id="find-next" class="pill-btn" data-t="findNext"></button>
+          <p class="msg" id="find-msg" role="status" aria-live="polite"></p>
+        </div>
       </div>
       <details class="site">
         <summary><span data-t="site"></span> <b id="site-summary"></b></summary>
@@ -110,6 +114,7 @@ $('#lang-toggle').addEventListener('click', () => {
   paintShell();
   applyTheme();
   siteMsg.textContent = '';
+  $('#find-msg').textContent = '';
   render();
 });
 
@@ -172,11 +177,37 @@ function go(hash: string) {
 app.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((b) =>
   b.addEventListener('click', () => go(b.dataset.view === 'outlook' ? 'outlook' : b.dataset.view === 'sats' || b.dataset.view === 'log' ? `${b.dataset.view}/${state.date}` : state.date)),
 );
-dateInput.addEventListener('change', () => isValidDateString(dateInput.value) && go(dateHash(dateInput.value)));
+const findMsg = $('#find-msg');
+dateInput.addEventListener('change', () => {
+  findMsg.textContent = '';
+  if (isValidDateString(dateInput.value)) go(dateHash(dateInput.value));
+});
 app.querySelectorAll<HTMLButtonElement>('[data-day]').forEach((b) =>
-  b.addEventListener('click', () => go(dateHash(addDays(state.date, Number(b.dataset.day))))),
+  b.addEventListener('click', () => {
+    findMsg.textContent = '';
+    go(dateHash(addDays(state.date, Number(b.dataset.day))));
+  }),
 );
-$('#today').addEventListener('click', () => go(dateHash(todayKST())));
+$('#today').addEventListener('click', () => {
+  findMsg.textContent = '';
+  go(dateHash(todayKST()));
+});
+
+// Nearest night worth shooting, from tonight over the outlook's 14 nights (same ratings as the 14-night tab).
+const FIND_DAYS = 14;
+$('#find-next').addEventListener('click', () => {
+  const T = S().shell;
+  const nights = outlook(todayKST(), state.site, state.fc, FIND_DAYS);
+  const hit = nextShootableNight(nights);
+  const noFc = state.fc ? '' : ` ${T.findNoForecast}`;
+  if (!hit) {
+    findMsg.textContent = T.findNone(FIND_DAYS) + noFc;
+    return;
+  }
+  const d = hit.plan.dateStr;
+  findMsg.textContent = (hit.rating === 'good' ? T.findGood(shortDate(d)) : T.findFair(shortDate(d), FIND_DAYS)) + noFc;
+  go(dateHash(d));
+});
 
 // ---------- site ----------
 
