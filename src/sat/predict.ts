@@ -663,3 +663,31 @@ export function trackPositions(sat: SatEntry, times: number[], site: Site): { t:
     return l ? { t, az: ((l.az * R2D) % 360 + 360) % 360, alt: l.alt * R2D, sunlit: l.sunlit } : { t, az: NaN, alt: NaN, sunlit: false };
   });
 }
+
+export interface FrameNight {
+  date: string;
+  /** This object's crossings of the camera frame during that night's shooting window (same rules as tonight's). */
+  crossings: Crossing[];
+  /** Passes above the horizon that overlap the window (searched ±20 min, as for tonight's ISS card). */
+  passes: Pass[];
+}
+
+/**
+ * Frame check for one object over several nights (the "ISS, next nights" card). Runs the same crossing search as
+ * predictCrossings (10-s steps, sunlit, above the horizon, inside the frame; entry/exit refined) but for this one
+ * object only, so several nights take about a second.
+ */
+export function frameNights(
+  sat: SatEntry,
+  nights: { date: string; start: number; end: number }[],
+  site: Site,
+  camera: Camera,
+  phaseLaw?: PhaseLaw,
+): FrameNight[] {
+  const margin = 20 * 60_000;
+  return nights.map((n) => {
+    const r = predictCrossings([sat], { start: n.start, end: n.end, stepS: 10, site, camera, pointing: [], phaseLaw });
+    const passes = findPasses(sat, { start: n.start - margin, end: n.end + margin, site, phaseLaw }).filter((p) => p.set.t >= n.start && p.rise.t <= n.end);
+    return { date: n.date, crossings: r.crossings, passes };
+  });
+}

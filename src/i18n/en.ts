@@ -358,6 +358,20 @@ export const en = {
     issCrosses: 'Crosses this frame tonight',
     issNo: 'Does not enter this frame tonight',
     issNoPass: 'No ISS pass during the shooting window',
+    // ISS, next nights
+    issNightsTitle: (n: number) => `ISS in this frame, next ${n} nights`,
+    issNightsIntro: (n: number) =>
+      `Checks whether the ISS crosses your camera frame (Camera, below) during each shooting window, tonight and the next ${n - 1} nights. Same rules as tonight’s check: above the horizon, sunlit and inside the frame, 10-s steps, entry/exit refined to 0.1 s.`,
+    issNightsBtn: (n: number) => `Check next ${n} nights`,
+    issNightsRecheck: 'Recheck',
+    busyIssNights: 'Checking the ISS over the next nights…',
+    issNightCross: (a: string, b: string) => `Crosses ${a}–${b}`,
+    issNightMaxAlt: (alt: string) => `max alt ${alt}°`,
+    issNightNotFrame: 'Passes over, not in this frame',
+    issNightNoPass: 'No pass in the window',
+    issNightNoWindow: 'No shooting window',
+    issNightsNote: (epoch: string, age: string) =>
+      `KST. Element set epoch ${epoch} KST (${age} days old). Nights further from the epoch are less certain, and the ISS raises its orbit from time to time, so recheck with fresh elements on the day. Tap a night to open its full prediction.`,
     enters: 'Enters',
     exits: 'Exits',
     issFrames: (a: number, b: number | null) => `Frames ${a}${b !== null && b !== a ? `–${b}` : ''}`,

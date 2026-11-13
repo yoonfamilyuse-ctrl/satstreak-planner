@@ -52,6 +52,11 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `shell.tapHint` |  · tap to pick |  · 눌러서 날짜 고르기 |
 | `shell.dateAria` | Observation date (evening, KST) | 관측 날짜 (저녁, KST) |
 | `shell.tonight` | Tonight | 오늘 밤 |
+| `shell.findNext` | Next good night | 가장 가까운 좋은 밤 |
+| `shell.findGood` | ƒ(date) → `Nearest good night: ${date} (no/low Moon, clear sky).` | ƒ(date) → `가장 가까운 좋은 밤: ${date} (달 없음/약함, 맑음).` |
+| `shell.findFair` | ƒ(date, days) → `No good night in the next ${days} nights. Nearest fair night: ${date}.` | ƒ(date, days) → `앞으로 ${days}일 안에 좋은 밤이 없어요. 가장 가까운 보통 밤: ${date}.` |
+| `shell.findNone` | ƒ(days) → `No good or fair night in the next ${days} nights.` | ƒ(days) → `앞으로 ${days}일 안에 좋은 밤이나 보통 밤이 없어요.` |
+| `shell.findNoForecast` | No cloud forecast yet, so only the Moon was checked. | 아직 구름 예보가 없어서 달만 확인했어요. |
 | `shell.site` | Site: | 장소: |
 | `shell.siteName` | Name | 이름 |
 | `shell.lat` | Latitude (°N) | 위도 (°N) |
@@ -388,6 +393,17 @@ Entries marked ƒ are templates: `${…}` is filled in by the app (a number, tim
 | `sats.issCrosses` | Crosses this frame tonight | 오늘 밤 이 화각을 지나가요 |
 | `sats.issNo` | Does not enter this frame tonight | 오늘 밤 이 화각에는 안 들어와요 |
 | `sats.issNoPass` | No ISS pass during the shooting window | 촬영 시간에 ISS 통과가 없어요 |
+| `sats.issNightsTitle` | ƒ(n) → `ISS in this frame, next ${n} nights` | ƒ(n) → `이 화각의 ISS, 앞으로 ${n}일 밤` |
+| `sats.issNightsIntro` | ƒ(n) → `Checks whether the ISS crosses your camera frame (Camera, below) during each shooting window, tonight and the next ${n - 1} nights. Same rules as tonight’s check: above the horizon, sunlit and inside the frame, 10-s steps, entry/exit refined to 0.1 s.` | ƒ(n) → `오늘 밤부터 ${n}일 밤 동안 촬영 시간마다 ISS가 카메라 화각(아래 카메라 설정)을 지나가는지 확인해요. 오늘 밤 확인과 같은 기준: 지평선 위, 햇빛을 받음, 화각 안. 10초 간격, 들어옴/나감은 0.1초까지 계산.` |
+| `sats.issNightsBtn` | ƒ(n) → `Check next ${n} nights` | ƒ(n) → `앞으로 ${n}일 밤 확인` |
+| `sats.issNightsRecheck` | Recheck | 다시 확인 |
+| `sats.busyIssNights` | Checking the ISS over the next nights… | 앞으로 며칠 밤의 ISS 확인 중… |
+| `sats.issNightCross` | ƒ(a, b) → `Crosses ${a}–${b}` | ƒ(a, b) → `${a}–${b}에 지나가요` |
+| `sats.issNightMaxAlt` | ƒ(alt) → `max alt ${alt}°` | ƒ(alt) → `최고 고도 ${alt}°` |
+| `sats.issNightNotFrame` | Passes over, not in this frame | 통과는 있지만 이 화각에는 안 들어와요 |
+| `sats.issNightNoPass` | No pass in the window | 촬영 시간에 통과 없음 |
+| `sats.issNightNoWindow` | No shooting window | 촬영 시간 없음 |
+| `sats.issNightsNote` | ƒ(epoch, age) → `KST. Element set epoch ${epoch} KST (${age} days old). Nights further from the epoch are less certain, and the ISS raises its orbit from time to time, so recheck with fresh elements on the day. Tap a night to open its full prediction.` | ƒ(epoch, age) → `KST. 궤도 요소 기준 시각 ${epoch} KST (${age}일 지남). 기준 시각에서 먼 밤일수록 예측이 덜 확실하고, ISS는 가끔 궤도를 올리니 당일에 새 궤도 요소로 다시 확인하세요. 날짜를 누르면 그날 밤 전체 예측이 열려요.` |
 | `sats.enters` | Enters | 들어옴 |
 | `sats.exits` | Exits | 나감 |
 | `sats.issFrames` | ƒ(a, b) → `Frames ${a}${b !== null && b !== a ? `–${b}` : ""}` | ƒ(a, b) → `프레임 ${a}${b !== null && b !== a ? `–${b}` : ""}` |

@@ -1,5 +1,5 @@
 import type { Site } from '../config';
-import { frameAt, type NightPlan } from '../astro/schedule';
+import { computeNight, frameAt, type NightPlan } from '../astro/schedule';
 import { moonPosition } from '../astro/moon';
 import { sunAltitude, sunAzAlt } from '../astro/sun';
 import { ommArrayToTleText } from '../sat/elements';
@@ -9,10 +9,10 @@ import { CAMERA as CAMERA_SETTINGS } from '../config';
 import { CELESTRAK_ACTIVE_URL, CELESTRAK_LABEL, downloadActive, nextAllowedAt } from '../sat/celestrak';
 import { SatWorker } from '../sat/client';
 import { angularSeparation, azimuthDifference, DEFAULT_CAMERA, fieldOfView, fovOutline, makeFov, pointingGrid, type Camera } from '../sat/fov';
-import { STATION_KM, TRAIN_KM, type BandKey, type Crossing, type Pass, type PredictResult } from '../sat/predict';
+import { STATION_KM, TRAIN_KM, type BandKey, type Crossing, type FrameNight, type Pass, type PredictResult } from '../sat/predict';
 import { getNightSet, getSetText, listNightSets, listSets, lockNightSet, deleteSet, putSet, type NightSet, type SetMeta } from '../sat/store';
-import { DAY_MS, fileStamp, fmtDateTime, fmtHM, fmtHMS, kstDateString, kstNoon, todayKST } from '../time';
-import { S, shortDate as fmtShortDate } from '../i18n';
+import { addDays, DAY_MS, fileStamp, fmtDateTime, fmtHM, fmtHMS, kstDateString, kstNoon, todayKST } from '../time';
+import { dayMonth, S, shortDate as fmtShortDate, weekday } from '../i18n';
 import { skyChart } from './skychart';
 import { deg, dir, esc } from './util';
 
@@ -56,6 +56,8 @@ function loadMag(): MagSettings {
   return d;
 }
 const ISS = 25544;
+/** Nights covered by the "ISS in this frame, next nights" card (tonight included). */
+export const ISS_NIGHTS = 5;
 const LOCK_ICON = '<svg class="ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
 const bandLabel = (b: BandKey) => S().sats.band[b] ?? b;
 /** Full band name from the glossary (박명 구간 / 어두운 구간 / 구간 사이 / 구간 밖), for running text. */
@@ -109,6 +111,8 @@ export class SatView {
   private result: { key: string; setId: string; r: PredictResult; issPasses: Pass[] } | null = null;
   private passes: { setId: string; passes: Pass[]; epoch: number; name: string; computedAt: number } | null = null;
   private showAllPasses = false;
+  /** ISS frame check over the next nights; `key` ties it to the set, site, camera and start date. */
+  private issNights: { key: string; epoch: number; nights: FrameNight[] } | null = null;
   private leoOnly = true;
   private mag = loadMag();
   private el: HTMLElement | null = null;
@@ -286,6 +290,8 @@ export class SatView {
           const r = await this.worker.call<any>({ type: 'passes', setId, norad: ISS, options: { start, end: start + 14 * DAY_MS, site: this.ctx.site, phaseLaw: this.mag.phaseLaw } });
           this.passes = { setId, passes: r.passes, epoch: r.epoch, name: r.name, computedAt: Date.now() };
         });
+      case 'iss-nights':
+        return void this.checkIssNights();
       case 'csv':
         return this.exportCrossings();
     }
@@ -482,11 +488,41 @@ export class SatView {
     }, true);
   }
 
+  private issNightsKey(): string {
+    const { site } = this.ctx;
+    return JSON.stringify([this.activeId(), todayKST(), site.latitude, site.longitude, site.elevation, this.camera, this.mag.phaseLaw]);
+  }
+
+  /** ISS frame check for tonight and the next nights (ISS only, so it takes about a second). */
+  private async checkIssNights() {
+    const setId = this.activeId();
+    if (!setId) return void (this.msg = { text: S().sats.loadFirst, kind: 'error' }), this.paint();
+    const key = this.issNightsKey();
+    await this.run(S().sats.busyIssNights, async () => {
+      await this.ensureWorkerHas(setId);
+      const today = todayKST();
+      const nights = Array.from({ length: ISS_NIGHTS }, (_, i) => addDays(today, i))
+        .map((date) => ({ date, w: computeNight(date, this.ctx.site).window }))
+        .filter((n) => n.w)
+        .map((n) => ({ date: n.date, start: n.w!.start.getTime(), end: n.w!.end.getTime() }));
+      const r = await this.worker.call<{ nights: FrameNight[]; epoch: number }>({
+        type: 'frameNights',
+        setId,
+        norad: ISS,
+        nights,
+        site: this.ctx.site,
+        camera: this.camera,
+        phaseLaw: this.mag.phaseLaw,
+      });
+      this.issNights = { key, epoch: r.epoch, nights: r.nights };
+    });
+  }
+
   // ---------------------------------------------------------------- rendering
 
   private paint() {
     if (!this.el || !this.ctx) return;
-    this.el.innerHTML = [this.message(), this.tonightBlock(), this.resultsCard(), this.elementsCard(), this.cameraCard(), this.issCard()].join('');
+    this.el.innerHTML = [this.message(), this.tonightBlock(), this.issNightsCard(), this.resultsCard(), this.elementsCard(), this.cameraCard(), this.issCard()].join('');
   }
 
   private message(): string {
@@ -761,6 +797,41 @@ export class SatView {
     return `<h3>${T.pointingTitle}</h3>
       <div class="scroll-x"><table class="pointing"><thead><tr><th>${T.thAzAlt}</th><th class="r">${T.thSunDaz}</th><th class="r">${T.thMoon}</th><th class="r">${T.thAll}${tk}</th><th class="r">${T.thPeak}${tk}</th><th class="r">${T.thMatched}${tk}</th><th class="r">${T.thIss}<div class="sec">${T.issRes}</div></th></tr></thead><tbody>${rows}</tbody></table></div>
       <p class="note">${T.pointingNote(this.leoOnly, sun && t12 ? T.sunAt(sun.azimuth.toFixed(0), dir(sun.azimuth), fmtHM(t12)) : 'n/a')}</p>`;
+  }
+
+  /** "ISS in this frame, next nights": one row per night, tap to open that night. */
+  private issNightsCard(): string {
+    const T = S().sats;
+    const ready = this.activeId() && !this.busy;
+    const res = this.issNights && this.issNights.key === this.issNightsKey() ? this.issNights : null;
+    const btn = `<button type="button" data-act="iss-nights"${ready ? '' : ' disabled'}>${res ? T.issNightsRecheck : T.issNightsBtn(ISS_NIGHTS)}</button>`;
+    const head = `<h2>${T.issNightsTitle(ISS_NIGHTS)}</h2>`;
+    if (!res) return `<section class="block">${head}<p class="note">${T.issNightsIntro(ISS_NIGHTS)}</p><div class="btn-row">${btn}</div></section>`;
+    const today = todayKST();
+    const byDate = new Map(res.nights.map((n) => [n.date, n]));
+    const rows = Array.from({ length: ISS_NIGHTS }, (_, i) => addDays(today, i))
+      .map((date, i) => {
+        const n = byDate.get(date);
+        const plan = computeNight(date, this.ctx.site);
+        let cls = '';
+        let what: string;
+        if (!n || !plan.window) what = `<span class="sec">${T.issNightNoWindow}</span>`;
+        else if (n.crossings.length) {
+          cls = ' yes';
+          what = n.crossings
+            .map((c) => {
+              const f1 = frameAt(plan.window!, new Date(c.entry));
+              const f2 = frameAt(plan.window!, new Date(c.exit));
+              const detail = [f1 !== null ? T.issFrames(f1, f2) : '', bandFull(c.band), T.issNightMaxAlt(c.maxAlt.toFixed(0))].filter(Boolean).join(' · ');
+              return `<b class="tnum">${T.issNightCross(fmtHMS(new Date(c.entry)), fmtHMS(new Date(c.exit)))}</b><span class="sec tnum">${detail}</span>`;
+            })
+            .join('');
+        } else what = `<span class="sec">${n.passes.length ? T.issNightNotFrame : T.issNightNoPass}</span>`;
+        return `<li class="in-night${cls}"><a href="#sats/${date}"><span class="in-date"><b>${i === 0 ? S().outlook.tonight : weekday(date)}</b><span class="tnum">${dayMonth(date)}</span></span><span class="in-what">${what}</span></a></li>`;
+      })
+      .join('');
+    const age = ((Date.now() - res.epoch) / DAY_MS).toFixed(1);
+    return `<section class="block">${head}<ol class="iss-nights">${rows}</ol><p class="note">${T.issNightsNote(fmtDateTime(res.epoch), age)}</p><div class="btn-row">${btn}</div></section>`;
   }
 
   private issCard(): string {

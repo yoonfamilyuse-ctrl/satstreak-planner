@@ -218,6 +218,9 @@ Example, 2026-11-11 (pass 18:46:22 SW → 18:49:40 70° SE → enters Earth's sh
 
 Recompute with fresh elements on the day: the ISS reboosts, and older elements drift by seconds per day.
 
+### ISS in this frame, next 5 nights
+On the Satellites tab, below tonight's ISS answer. For tonight and the next 4 nights it runs the same frame test as tonight's check (above the horizon, sunlit, inside the camera frame, 10-s steps, entry/exit refined to 0.1 s) on the ISS alone, over each night's shooting window, with the current camera pointing and element set (`frameNights` in `src/sat/predict.ts`). Each night shows *Crosses* (times, frames if shooting starts on plan, band, max altitude), *passes over, not in this frame*, *no pass in the window*, or *no shooting window*. Tap a night to open its full prediction. Nights further from the element-set epoch are less certain (see above), so recheck with fresh elements on the day. Tests: the 11 Nov S/60° crossing matches the full prediction; W/45° gives a pass with no crossing.
+
 ### ISS passes
 Next 14 days, passes found at 10-s steps then refined: rise/set by bisection (0.1 s), culmination by golden-section search. The **visible** part uses the same definition as Heavens-Above's tables: altitude ≥ 10°, sunlit (cylindrical shadow), Sun ≤ −6°. The default list shows evening passes whose highest visible altitude is ≥ 30°.
 

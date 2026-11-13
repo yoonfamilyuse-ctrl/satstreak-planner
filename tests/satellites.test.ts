@@ -5,7 +5,9 @@ import { DEFAULT_SITE } from '../src/config';
 import { compass } from '../src/astro/moon';
 import { decodeAlpha5, ommArrayToTleText, ommToTle, parseElementText, parseTle, tleChecksum, tleExp } from '../src/sat/elements';
 import { DEFAULT_CAMERA, fieldOfView, gnomonic, inFov, inverseGnomonic, makeFov } from '../src/sat/fov';
-import { findPasses, isSunlit, predictCrossings, R_EARTH_KM } from '../src/sat/predict';
+import { findPasses, frameNights, isSunlit, predictCrossings, R_EARTH_KM } from '../src/sat/predict';
+import { computeNight } from '../src/astro/schedule';
+import { addDays } from '../src/time';
 
 /** Real CelesTrak GP data (GROUP=active, FORMAT=json) downloaded 2026-11-04 23:37 UTC, 17-object subset. */
 const FIXTURE = readFileSync(new URL('./fixtures/celestrak-active-sample-2026-11-04.json', import.meta.url), 'utf8');
@@ -159,6 +161,39 @@ describe('camera-crossing prediction (sample set, 2026-11-11 window)', () => {
     expect(iss.m1000! + iss.magRel).toBeLessThan(-3); // bright
     // W/45° does not see it.
     expect(r.pointing[0].runs.some((x) => x.norad === 25544)).toBe(false);
+  });
+});
+
+describe('ISS frame check over several nights', () => {
+  const iss = parseElementText(FIXTURE).sats.find((x) => x.norad === 25544)!;
+  const nights = Array.from({ length: 3 }, (_, i) => addDays('2026-11-10', i)).map((date) => {
+    const w = computeNight(date, DEFAULT_SITE).window!;
+    return { date, start: w.start.getTime(), end: w.end.getTime() };
+  });
+
+  it('gives the same 2026-11-11 crossing as the full prediction (S/60°, 18:48:18–18:49:53 KST)', () => {
+    const r = frameNights(iss, nights, DEFAULT_SITE, { ...DEFAULT_CAMERA, azimuth: 180, altitude: 60 });
+    expect(r.map((n) => n.date)).toEqual(['2026-11-10', '2026-11-11', '2026-11-12']);
+    const c = r[1].crossings;
+    expect(c).toHaveLength(1);
+    expect(Math.abs(c[0].entry - Date.UTC(2026, 10, 11, 9, 48, 18)) / 1000).toBeLessThan(1);
+    expect(Math.abs(c[0].exit - Date.UTC(2026, 10, 11, 9, 49, 53)) / 1000).toBeLessThan(1);
+    expect(r[1].passes.length).toBeGreaterThan(0);
+  });
+
+  it('reports a pass with no crossing when the frame points away (W/45° on 2026-11-11)', () => {
+    const r = frameNights(iss, nights, DEFAULT_SITE, { ...DEFAULT_CAMERA, azimuth: 270, altitude: 45 });
+    expect(r[1].crossings).toEqual([]);
+    expect(r[1].passes.length).toBeGreaterThan(0);
+  });
+
+  it('matches predictCrossings night by night', () => {
+    const cam = { ...DEFAULT_CAMERA, azimuth: 135, altitude: 50 };
+    const r = frameNights(iss, nights, DEFAULT_SITE, cam);
+    for (const [i, n] of nights.entries()) {
+      const full = predictCrossings([iss], { ...n, stepS: 10, site: DEFAULT_SITE, camera: cam, pointing: [] });
+      expect(r[i].crossings.map((c) => [c.entry, c.exit])).toEqual(full.crossings.map((c) => [c.entry, c.exit]));
+    }
   });
 });
 
