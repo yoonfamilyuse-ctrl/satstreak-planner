@@ -14,6 +14,8 @@ export default defineConfig({
   // Module workers (supported by all current mobile browsers); needed because satellite.js's
   // optional WASM build uses top-level await.
   worker: { format: 'es' },
+  // Second page: the standalone class clock, served at <site>/clock/.
+  build: { rollupOptions: { input: { main: 'index.html', clock: 'clock/index.html' } } },
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],
