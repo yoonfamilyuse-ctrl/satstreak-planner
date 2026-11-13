@@ -1,0 +1,387 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Class Terminal Clock</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Teko:wght@500;600;700&family=Black+Han+Sans&family=Share+Tech+Mono&display=swap">
+<style>
+/* Layout: CRT-style bezel; narrow left rail (sync / stripes / status) + right stack (clock, period|next, external). Dark-only by design. */
+:root {
+  color-scheme: dark;
+  --bg: #0a0907;
+  --panel: #100e0b;
+  --red: #ff4b2b;
+  --green: #74e37e;
+  --amber: #ffb23e;
+  --yellow: #f2d23c;
+  --line: #c9923f;
+  --dim: #7a6a52;
+  --f-digit: "Teko", "Oswald", "Arial Narrow", sans-serif;
+  --f-ko: "Black Han Sans", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+  --f-mono: "Share Tech Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--amber);
+  font-family: var(--f-mono);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.frame {
+  container-type: inline-size;
+  width: min(100%, calc((100dvh - 32px) * 1.36));
+  aspect-ratio: 1.36;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns: 17% 1fr;
+  gap: 1.4cqi;
+  padding: 1.6cqi;
+  background: var(--panel);
+  border-radius: 1.6cqi;
+  box-shadow: inset 0 0 6cqi #000, 0 0 0 0.5cqi #1b1814;
+  position: relative;
+}
+/* scanlines */
+.frame::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px);
+}
+.box { border: 0.25cqi solid var(--line); position: relative; min-width: 0; }
+
+/* ---------- left rail ---------- */
+.rail { display: grid; grid-template-rows: auto auto 1fr 32%; gap: 1.2cqi; min-height: 0; }
+.sync {
+  font: 700 3.2cqi/1 var(--f-digit); letter-spacing: .08em;
+  color: #1a0d08; background: var(--red); border: 0; padding: 1.4cqi 0 0.8cqi;
+  cursor: pointer; transition: background .3s, color .3s;
+}
+.sync.off { background: transparent; color: var(--red); outline: 0.25cqi solid var(--red); outline-offset: -0.25cqi; }
+.sync:focus-visible { outline: 0.4cqi solid var(--yellow); outline-offset: 0.4cqi; }
+.meta { font-size: 1.05cqi; line-height: 1.5; color: var(--green); letter-spacing: .06em; text-transform: uppercase; }
+.stripes {
+  border: 0.25cqi solid var(--line);
+  background: repeating-linear-gradient(45deg, var(--red) 0 2cqi, var(--green) 2cqi 4cqi);
+  background-size: 200% 200%;
+  clip-path: polygon(0 18%, 100% 0, 100% 100%, 0 100%);
+  animation: drift 6s linear infinite;
+}
+@keyframes drift { to { background-position: 5.66cqi 0; } }
+.status { display: flex; align-items: flex-end; padding: 1cqi; }
+.status p {
+  margin: 0; writing-mode: vertical-rl; transform: rotate(180deg);
+  font-size: 1.2cqi; line-height: 1.4; letter-spacing: .1em; color: var(--yellow); text-transform: uppercase;
+}
+.status b { color: var(--green); font-weight: 400; }
+
+/* ---------- right stack ---------- */
+.main { display: grid; grid-template-rows: 46% 1fr 1fr; gap: 1.4cqi; min-height: 0; }
+.clock {
+  border: 0.25cqi solid var(--green); border-left-width: 0.6cqi;
+  display: grid; place-content: center; justify-items: center; gap: 0.4cqi;
+}
+.date { font: 600 5cqi/1 var(--f-digit); color: var(--green); letter-spacing: .14em; }
+.date .wd { font-family: var(--f-ko); font-size: .78em; letter-spacing: 0; }
+.time { display: flex; align-items: flex-end; gap: 1.2cqi; font-family: var(--f-digit); font-variant-numeric: tabular-nums; }
+.hm { font-size: 19cqi; line-height: .78; font-weight: 700; color: var(--red); text-shadow: 0 0 2cqi rgba(255,75,43,.35); }
+.hm .colon { animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: .25; } }
+.ss { font-size: 5.4cqi; line-height: 1; font-weight: 700; color: var(--amber); padding-bottom: .6cqi; }
+
+.row { display: grid; grid-template-columns: 30% 1fr; gap: 1.4cqi; min-height: 0; }
+.cell { display: flex; align-items: center; gap: 1.6cqi; padding: 0 1.8cqi; overflow: hidden; }
+.tag { display: grid; line-height: 1; flex: none; }
+.tag .ko { font: 3.6cqi/1 var(--f-ko); color: var(--yellow); }
+.tag .en { font: 600 1.4cqi/1.2 var(--f-digit); color: var(--yellow); letter-spacing: .08em; margin-top: .4cqi; }
+.val { font: 700 5cqi/1 var(--f-digit); color: var(--red); letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding-top: .6cqi; }
+#period { white-space: normal; font-size: 4.2cqi; line-height: .95; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.next { padding-right: 6cqi; }
+.next .body { flex: 1; min-width: 0; display: grid; gap: 1cqi; }
+.next .val { font-size: 6.4cqi; }
+.bar { height: 1.1cqi; border: 0.2cqi solid var(--red); position: relative; }
+.bar i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--amber); transition: width .9s linear; }
+.count { font-size: 1.3cqi; color: var(--dim); letter-spacing: .1em; }
+.hazard { position: absolute; top: 0; right: 0; bottom: 0; width: 4cqi; border-left: 0.25cqi solid var(--line); }
+.hazard.y { background: repeating-linear-gradient(-45deg, var(--yellow) 0 1.2cqi, #000 1.2cqi 2.4cqi); }
+.hazard.r { width: 7cqi; background: repeating-linear-gradient(45deg, var(--red) 0 1.2cqi, #000 1.2cqi 2.4cqi); }
+.ext { padding-right: 9cqi; justify-content: space-between; }
+.ext .tag .ko { font-size: 5cqi; }
+.ext .tag .en { font-size: 2cqi; }
+.temp { font: 600 10cqi/1 var(--f-digit); color: var(--green); font-variant-numeric: tabular-nums; padding-top: 1cqi; padding-right: 3cqi; }
+.temp.stale { color: var(--dim); }
+
+/* ---------- settings ---------- */
+dialog {
+  background: var(--panel); color: var(--amber); border: 2px solid var(--line);
+  width: min(560px, calc(100% - 32px)); padding: 20px; font-family: var(--f-mono);
+}
+dialog::backdrop { background: rgba(0,0,0,.75); }
+dialog h2 { font: 26px/1 var(--f-ko); color: var(--yellow); margin: 0 0 14px; }
+dialog label { display: grid; gap: 6px; font-size: 13px; letter-spacing: .06em; color: var(--green); margin-bottom: 14px; }
+dialog textarea, dialog input {
+  background: #000; color: var(--amber); border: 1px solid var(--dim); padding: 10px;
+  font: 15px/1.5 var(--f-mono); width: 100%;
+}
+dialog textarea { min-height: 220px; resize: vertical; }
+dialog textarea:focus, dialog input:focus { outline: 2px solid var(--yellow); outline-offset: 1px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.hint { font-size: 12px; color: var(--dim); margin: -6px 0 14px; line-height: 1.5; }
+.err { color: var(--red); font-size: 13px; min-height: 1.2em; margin: 0 0 10px; }
+.btns { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+.btns button { font: 600 20px/1 var(--f-digit); letter-spacing: .08em; padding: 10px 18px 6px; cursor: pointer; border: 2px solid var(--red); }
+.btns .primary { background: var(--red); color: #1a0d08; }
+.btns .ghost { background: transparent; color: var(--red); }
+.btns button:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
+
+/* ---------- portrait phones: stack ---------- */
+@media (max-aspect-ratio: 1/1) {
+  body { place-items: start center; overflow: auto; }
+  .frame { width: 100%; aspect-ratio: auto; grid-template-columns: 1fr; gap: 3cqi; padding: 3cqi; border-radius: 3cqi; }
+  .rail { grid-template-rows: auto; grid-template-columns: auto 1fr; align-items: center; gap: 3cqi; }
+  .stripes, .status { display: none; }
+  .sync { font-size: 6cqi; padding: 2.4cqi 4cqi 1.4cqi; }
+  .meta { font-size: 2.6cqi; }
+  .main { grid-template-rows: auto; gap: 3cqi; }
+  .clock { padding: 6cqi 2cqi; }
+  .date { font-size: 7.5cqi; }
+  .hm { font-size: 30cqi; }
+  .ss { font-size: 9cqi; }
+  .row { grid-template-columns: 1fr; gap: 3cqi; }
+  .cell { padding: 4cqi; gap: 4cqi; min-height: 20cqi; }
+  .tag .ko { font-size: 7cqi; }
+  .tag .en { font-size: 2.8cqi; }
+  .val, #period { font-size: 9cqi; }
+  .next .val { font-size: 10cqi; }
+  .bar { height: 2.4cqi; }
+  .count { font-size: 2.8cqi; }
+  .hazard.y { width: 7cqi; }
+  .hazard.r { width: 12cqi; }
+  .next { padding-right: 11cqi; }
+  .ext { padding-right: 14cqi; }
+  .ext .tag .ko { font-size: 9cqi; }
+  .ext .tag .en { font-size: 3.4cqi; }
+  .temp { font-size: 16cqi; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stripes, .hm .colon { animation: none; }
+  .bar i { transition: none; }
+}
+</style>
+
+<div class="frame" id="frame">
+  <aside class="rail">
+    <button class="sync" id="sync" type="button" title="설정 열기 (Settings)">SYNC</button>
+    <div class="meta" id="meta">KST · UTC+9<br>WX LINK<br>STANDBY</div>
+    <div class="stripes" aria-hidden="true"></div>
+    <div class="box status"><p id="statusText">SYS CHECK: <b>NOMINAL</b><br>SCHEDULE: <b id="schedCount">0</b> ENTRIES</p></div>
+  </aside>
+
+  <section class="main">
+    <div class="clock">
+      <div class="date" id="date">----/--/--<span class="wd">(-)</span></div>
+      <div class="time" aria-live="off">
+        <span class="hm" id="hm">--<span class="colon">:</span>--</span>
+        <span class="ss" id="ss">:--</span>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="box cell">
+        <div class="tag"><span class="ko">교시</span><span class="en">PERIOD</span></div>
+        <div class="val" id="period">—</div>
+      </div>
+      <div class="box cell next">
+        <div class="tag"><span class="ko">다음</span><span class="en" id="nextAt">NEXT --:--</span></div>
+        <div class="body">
+          <div class="val" id="nextName">—</div>
+          <div class="bar"><i id="bar"></i></div>
+          <div class="count" id="count">T- --:--</div>
+        </div>
+        <div class="hazard y" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <div class="box cell ext">
+      <div class="tag"><span class="ko">외부</span><span class="en">EXTERNAL</span></div>
+      <div class="temp stale" id="temp">--.-°C</div>
+      <div class="hazard r" aria-hidden="true"></div>
+    </div>
+  </section>
+</div>
+
+<dialog id="dlg">
+  <form id="form" method="dialog">
+    <h2>설정 SETTINGS</h2>
+    <label for="sched">시간표 SCHEDULE — 한 줄에 하나: <code>HH:MM-HH:MM 이름</code>
+      <textarea id="sched" spellcheck="false"></textarea>
+    </label>
+    <p class="hint">예시 시간표가 들어 있습니다. 실제 시간표로 바꾸세요. 시간은 한국 표준시(KST) 기준입니다. 수업 사이 빈 시간은 BREAK로 표시됩니다.</p>
+    <div class="pair">
+      <label for="lat">위도 LAT<input id="lat" inputmode="decimal"></label>
+      <label for="lon">경도 LON<input id="lon" inputmode="decimal"></label>
+    </div>
+    <p class="hint">외부 기온: Open-Meteo 현재 기온(temperature_2m), 15분마다 갱신. 기본값은 서울.</p>
+    <p class="err" id="err"></p>
+    <div class="btns">
+      <button type="button" class="ghost" id="fs">전체화면 FULL</button>
+      <button type="button" class="ghost" id="cancel">취소 CANCEL</button>
+      <button type="submit" class="primary" id="save">저장 SAVE</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(() => {
+  const TZ = 'Asia/Seoul';
+  const KEY = 'class-terminal-clock:v1';
+  // Example timetable (replace in Settings).
+  const DEFAULT_SCHED = [
+    '08:40-09:25 MATHEMATICS',
+    '09:30-10:15 ART THEORY',
+    '10:25-11:10 PHYSICS',
+    '11:20-12:05 LITERATURE',
+    '12:05-13:00 LUNCH',
+    '13:00-13:45 HISTORY',
+    '13:55-14:40 ENGLISH',
+  ].join('\n');
+  const DEFAULTS = { sched: DEFAULT_SCHED, lat: 37.5665, lon: 126.978 };
+
+  const $ = (id) => document.getElementById(id);
+  let cfg = load();
+  let entries = parse(cfg.sched).entries;
+  let wx = { ok: false, at: 0 };
+
+  function load() {
+    try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; }
+    catch { return { ...DEFAULTS }; }
+  }
+  function store() { try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch {} }
+
+  function parse(text) {
+    const out = [], bad = [];
+    text.split('\n').forEach((raw, i) => {
+      const line = raw.trim();
+      if (!line) return;
+      const m = line.match(/^(\d{1,2}):(\d{2})\s*[-~]\s*(\d{1,2}):(\d{2})\s+(.+)$/);
+      if (!m) { bad.push(i + 1); return; }
+      const s = +m[1] * 60 + +m[2], e = +m[3] * 60 + +m[4];
+      if (+m[1] > 23 || +m[3] > 24 || +m[2] > 59 || +m[4] > 59 || e <= s) { bad.push(i + 1); return; }
+      out.push({ s, e, name: m[5].trim() });
+    });
+    out.sort((a, b) => a.s - b.s);
+    return { entries: out, bad };
+  }
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23', weekday: 'short',
+  });
+  const WD = { Sun: '일', Mon: '월', Tue: '화', Wed: '수', Thu: '목', Fri: '금', Sat: '토' };
+  const pad = (n) => String(n).padStart(2, '0');
+  const hhmm = (min) => pad(Math.floor(min / 60) % 24) + ':' + pad(min % 60);
+
+  function kstNow() {
+    const p = {};
+    for (const { type, value } of parts.formatToParts(new Date())) p[type] = value;
+    return p;
+  }
+
+  function tick() {
+    const p = kstNow();
+    $('date').innerHTML = `${p.year}/${p.month}/${p.day}<span class="wd">(${WD[p.weekday] || p.weekday})</span>`;
+    $('hm').innerHTML = `${p.hour}<span class="colon">:</span>${p.minute}`;
+    $('ss').textContent = ':' + p.second;
+
+    const t = +p.hour * 60 + +p.minute + +p.second / 60; // minutes since KST midnight
+    const cur = entries.find((x) => x.s <= t && t < x.e);
+    const next = entries.find((x) => x.s > t);
+    const started = entries.some((x) => x.s <= t);
+
+    $('period').textContent = cur ? cur.name : !entries.length ? 'NO SCHEDULE' : !started ? 'STANDBY' : next ? 'BREAK' : 'DISMISSED';
+
+    if (next) {
+      // Bar fills from the last boundary (start or end of a block) to the next start.
+      let from = Math.max(0, next.s - 60);
+      for (const x of entries) { if (x.s <= t) from = Math.max(from, x.s); if (x.e <= t) from = Math.max(from, x.e); }
+      if (!started) from = Math.max(0, next.s - 60);
+      const frac = Math.min(1, Math.max(0, (t - from) / (next.s - from)));
+      const left = Math.max(0, Math.round((next.s - t) * 60));
+      $('nextName').textContent = next.name;
+      $('nextAt').textContent = 'NEXT ' + hhmm(next.s);
+      $('bar').style.width = (frac * 100).toFixed(2) + '%';
+      $('count').textContent = 'T- ' + (left >= 3600 ? Math.floor(left / 3600) + ':' : '') +
+        pad(Math.floor(left / 60) % 60) + ':' + pad(left % 60);
+    } else {
+      $('nextName').textContent = 'END OF DAY';
+      $('nextAt').textContent = 'NEXT --:--';
+      $('bar').style.width = '100%';
+      $('count').textContent = 'T- --:--';
+    }
+    $('schedCount').textContent = entries.length;
+
+    // Weather refresh every 15 minutes.
+    if (Date.now() - wx.at > 15 * 60 * 1000) fetchWx();
+    const age = wx.ok ? Math.round((Date.now() - wx.okAt) / 60000) : null;
+    $('meta').innerHTML = `KST · UTC+9<br>WX LINK<br>${wx.ok ? 'OK · ' + age + 'M AGO' : 'OFFLINE'}`;
+    $('sync').classList.toggle('off', !wx.ok);
+  }
+
+  async function fetchWx() {
+    wx.at = Date.now();
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${cfg.lat}&longitude=${cfg.lon}&current=temperature_2m&timezone=Asia%2FSeoul`;
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(r.status);
+      const j = await r.json();
+      const v = j?.current?.temperature_2m;
+      if (typeof v !== 'number') throw new Error('no data');
+      $('temp').textContent = v.toFixed(1) + '°C';
+      $('temp').classList.remove('stale');
+      wx.ok = true; wx.okAt = Date.now();
+    } catch {
+      wx.ok = false;
+      $('temp').classList.add('stale');
+    }
+  }
+
+  // ----- settings -----
+  const dlg = $('dlg');
+  $('sync').addEventListener('click', () => {
+    $('sched').value = cfg.sched; $('lat').value = cfg.lat; $('lon').value = cfg.lon; $('err').textContent = '';
+    dlg.showModal();
+  });
+  $('cancel').addEventListener('click', () => dlg.close());
+  $('form').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const { entries: e, bad } = parse($('sched').value);
+    const lat = parseFloat($('lat').value), lon = parseFloat($('lon').value);
+    if (bad.length) { $('err').textContent = `${bad.join(', ')}번째 줄을 읽을 수 없습니다. 형식: 09:30-10:15 ART THEORY`; return; }
+    if (!(Math.abs(lat) <= 90) || !(Math.abs(lon) <= 180)) { $('err').textContent = '위도는 -90~90, 경도는 -180~180 사이 숫자로 입력하세요.'; return; }
+    const moved = lat !== cfg.lat || lon !== cfg.lon;
+    cfg = { sched: $('sched').value, lat, lon };
+    entries = e; store();
+    if (moved) wx.at = 0;
+    dlg.close(); tick();
+  });
+  $('fs').addEventListener('click', async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch {}
+    dlg.close();
+  });
+
+  // Keep the screen awake while visible (ignored if refused).
+  async function wake() { try { await navigator.wakeLock?.request('screen'); } catch {} }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+  wake();
+
+  tick();
+  setTimeout(function loop() { tick(); setTimeout(loop, 1000 - (Date.now() % 1000) + 5); }, 1000 - (Date.now() % 1000) + 5);
+})();
+</script>
